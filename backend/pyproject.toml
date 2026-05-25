@@ -38,6 +38,9 @@ exclude = ["tests*"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-ra --strict-markers"
+markers = [
+    "integration: needs docker compose stack running (skipped by default in unit mode)",
+]
 
 [tool.ruff]
 line-length = 100
