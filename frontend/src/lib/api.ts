@@ -12,18 +12,22 @@ export class ApiError extends Error {
   }
 }
 
+export type ApiFetchInit = RequestInit & { token?: string | null };
+
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit = {},
+  init: ApiFetchInit = {},
 ): Promise<T> {
+  const { token, headers: callerHeaders, ...rest } = init;
   const url = `${API_BASE_URL}${path}`;
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...((callerHeaders as Record<string, string> | undefined) ?? {}),
+  };
+
+  const response = await fetch(url, { ...rest, headers });
 
   if (!response.ok) {
     const text = await response.text();
