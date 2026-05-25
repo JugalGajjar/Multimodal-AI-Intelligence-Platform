@@ -1,0 +1,16 @@
+node_modules
+.next
+.next/dev
+out
+build
+.git
+.gitignore
+.env
+.env.*
+!.env.local.example
+.DS_Store
+.idea
+.vscode
+README.md
+AGENTS.md
+CLAUDE.md
