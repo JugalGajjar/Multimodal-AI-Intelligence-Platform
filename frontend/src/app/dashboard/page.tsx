@@ -3,14 +3,9 @@
 import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/auth-gate";
+import { DocumentUploader } from "@/components/documents/document-uploader";
+import { DocumentsList } from "@/components/documents/documents-list";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { useAuthStore } from "@/store/auth";
 
 export default function DashboardPage() {
@@ -32,26 +27,20 @@ function DashboardInner() {
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center px-6 py-16">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Welcome</CardTitle>
-          <CardDescription>You are signed in.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Email</span>
-            <span className="font-mono">{user?.email}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">User ID</span>
-            <span className="font-mono text-xs">{user?.id}</span>
-          </div>
-          <Button onClick={onLogout} variant="outline" className="w-full">
-            Sign out
-          </Button>
-        </CardContent>
-      </Card>
+    <main className="flex flex-1 flex-col items-center gap-6 px-6 py-12">
+      <div className="flex w-full max-w-2xl items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">
+            Signed in as <span className="font-mono">{user?.email}</span>
+          </p>
+        </div>
+        <Button onClick={onLogout} variant="outline" size="sm">
+          Sign out
+        </Button>
+      </div>
+      <DocumentUploader />
+      <DocumentsList />
     </main>
   );
 }

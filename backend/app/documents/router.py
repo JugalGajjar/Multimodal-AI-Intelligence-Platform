@@ -1,0 +1,117 @@
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.deps import get_current_user
+from app.auth.models import User
+from app.db.session import get_db
+from app.documents.models import Document
+from app.documents.schemas import DocumentListResponse, DocumentResponse
+from app.documents.service import delete_stored_object, store_uploaded_file
+from app.documents.validation import (
+    MAX_FILE_SIZE_BYTES,
+    is_allowed_mime,
+    sanitize_filename,
+)
+
+router = APIRouter(prefix="/documents", tags=["documents"])
+
+DbDep = Annotated[AsyncSession, Depends(get_db)]
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+@router.post(
+    "",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_document(
+    current_user: CurrentUserDep,
+    db: DbDep,
+    file: UploadFile = File(...),  # noqa: B008  (FastAPI marker)
+) -> Document:
+    if not is_allowed_mime(file.content_type):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported file type: {file.content_type!r}",
+        )
+
+    data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty file",
+        )
+    if len(data) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum size of {MAX_FILE_SIZE_BYTES} bytes",
+        )
+
+    return await store_uploaded_file(
+        db=db,
+        user_id=current_user.id,
+        filename=sanitize_filename(file.filename),
+        content_type=file.content_type or "application/octet-stream",
+        data=data,
+    )
+
+
+@router.get("", response_model=DocumentListResponse)
+async def list_documents(
+    current_user: CurrentUserDep, db: DbDep
+) -> DocumentListResponse:
+    stmt = (
+        select(Document)
+        .where(Document.user_id == current_user.id)
+        .order_by(Document.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    count_stmt = select(func.count()).select_from(Document).where(
+        Document.user_id == current_user.id
+    )
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    return DocumentListResponse(
+        items=[DocumentResponse.model_validate(d) for d in items],
+        total=total,
+    )
+
+
+@router.get("/{document_id}", response_model=DocumentResponse)
+async def get_document(
+    document_id: UUID, current_user: CurrentUserDep, db: DbDep
+) -> Document:
+    doc = await db.get(Document, document_id)
+    if doc is None or doc.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+    return doc
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"description": "Not found"}},
+)
+async def delete_document(
+    document_id: UUID, current_user: CurrentUserDep, db: DbDep
+) -> None:
+    doc = await db.get(Document, document_id)
+    if doc is None or doc.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+
+    storage_key = doc.storage_key
+    await db.delete(doc)
+    await db.commit()
+
+    if storage_key:
+        await delete_stored_object(storage_key)
