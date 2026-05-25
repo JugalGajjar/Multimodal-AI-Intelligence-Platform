@@ -15,22 +15,61 @@ volumes:
 services:
 
   # ----------------------------------------------------------
+  # Backend — FastAPI
+  # ----------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mmap-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.localhost`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+    networks:
+      - mmap-net
+
+  # ----------------------------------------------------------
   # Reverse proxy
   # ----------------------------------------------------------
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.6
     container_name: mmap-traefik
     restart: unless-stopped
     command:
       - "--api.insecure=true"
       - "--providers.docker=true"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
       - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=mmap_mmap-net"
       - "--entrypoints.web.address=:80"
     ports:
       - "80:80"
       - "8080:8080"   # Traefik dashboard
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # On macOS use ${HOME}/.docker/run/docker.sock (Docker Desktop's real socket).
+      # On Linux use /var/run/docker.sock. Override via DOCKER_SOCK in .env.
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
     networks:
       - mmap-net
 
