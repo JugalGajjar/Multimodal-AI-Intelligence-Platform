@@ -46,9 +46,7 @@ def test_defaults(fresh_settings):
 
 
 def test_cors_origins_parses_csv(fresh_settings):
-    s = fresh_settings(
-        {"BACKEND_CORS_ORIGINS": "http://localhost:3000, https://app.example.com"}
-    )
+    s = fresh_settings({"BACKEND_CORS_ORIGINS": "http://localhost:3000, https://app.example.com"})
 
     assert s.cors_origins == [
         "http://localhost:3000",

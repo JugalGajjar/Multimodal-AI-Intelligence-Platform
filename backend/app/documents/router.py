@@ -9,7 +9,11 @@ from app.auth.deps import get_current_user
 from app.auth.models import User
 from app.db.session import get_db
 from app.documents.models import Document
-from app.documents.schemas import DocumentListResponse, DocumentResponse
+from app.documents.schemas import (
+    DocumentListResponse,
+    DocumentResponse,
+    DocumentTextResponse,
+)
 from app.documents.service import delete_stored_object, store_uploaded_file
 from app.documents.validation import (
     MAX_FILE_SIZE_BYTES,
@@ -61,9 +65,7 @@ async def upload_document(
 
 
 @router.get("", response_model=DocumentListResponse)
-async def list_documents(
-    current_user: CurrentUserDep, db: DbDep
-) -> DocumentListResponse:
+async def list_documents(current_user: CurrentUserDep, db: DbDep) -> DocumentListResponse:
     stmt = (
         select(Document)
         .where(Document.user_id == current_user.id)
@@ -72,8 +74,8 @@ async def list_documents(
     result = await db.execute(stmt)
     items = result.scalars().all()
 
-    count_stmt = select(func.count()).select_from(Document).where(
-        Document.user_id == current_user.id
+    count_stmt = (
+        select(func.count()).select_from(Document).where(Document.user_id == current_user.id)
     )
     total = (await db.execute(count_stmt)).scalar_one()
 
@@ -84,15 +86,21 @@ async def list_documents(
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-async def get_document(
-    document_id: UUID, current_user: CurrentUserDep, db: DbDep
-) -> Document:
+async def get_document(document_id: UUID, current_user: CurrentUserDep, db: DbDep) -> Document:
     doc = await db.get(Document, document_id)
     if doc is None or doc.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return doc
+
+
+@router.get("/{document_id}/text", response_model=DocumentTextResponse)
+async def get_document_text(
+    document_id: UUID, current_user: CurrentUserDep, db: DbDep
+) -> DocumentTextResponse:
+    doc = await db.get(Document, document_id)
+    if doc is None or doc.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    return DocumentTextResponse(id=doc.id, status=doc.status, extracted_text=doc.extracted_text)
 
 
 @router.delete(
@@ -100,14 +108,10 @@ async def get_document(
     status_code=status.HTTP_204_NO_CONTENT,
     responses={404: {"description": "Not found"}},
 )
-async def delete_document(
-    document_id: UUID, current_user: CurrentUserDep, db: DbDep
-) -> None:
+async def delete_document(document_id: UUID, current_user: CurrentUserDep, db: DbDep) -> None:
     doc = await db.get(Document, document_id)
     if doc is None or doc.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     storage_key = doc.storage_key
     await db.delete(doc)

@@ -64,9 +64,7 @@ def test_traefik_dashboard_api():
 
 
 def test_traefik_routes_backend_via_host_header():
-    req_status, body = http_get_with_host(
-        "http://127.0.0.1/api/v1/health", host="api.localhost"
-    )
+    req_status, body = http_get_with_host("http://127.0.0.1/api/v1/health", host="api.localhost")
 
     assert req_status == 200
     payload = json.loads(body)

@@ -21,3 +21,9 @@ class DocumentResponse(BaseModel):
 class DocumentListResponse(BaseModel):
     items: list[DocumentResponse]
     total: int
+
+
+class DocumentTextResponse(BaseModel):
+    id: UUID
+    status: DocumentStatus
+    extracted_text: str | None

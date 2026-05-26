@@ -19,9 +19,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
     minutes = (
-        expires_minutes
-        if expires_minutes is not None
-        else settings.jwt_access_token_expire_minutes
+        expires_minutes if expires_minutes is not None else settings.jwt_access_token_expire_minutes
     )
     now = datetime.now(UTC)
     payload = {

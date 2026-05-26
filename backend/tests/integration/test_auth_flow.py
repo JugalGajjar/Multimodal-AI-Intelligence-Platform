@@ -101,9 +101,7 @@ def test_login_rejects_unknown_email(http):
 def test_me_returns_current_user(http):
     email = unique_email()
     http.post("/auth/register", json={"email": email, "password": "abcdefgh"})
-    login = http.post(
-        "/auth/login", json={"email": email, "password": "abcdefgh"}
-    ).json()
+    login = http.post("/auth/login", json={"email": email, "password": "abcdefgh"}).json()
     token = login["access_token"]
 
     r = http.get("/auth/me", headers={"Authorization": f"Bearer {token}"})

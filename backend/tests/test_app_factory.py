@@ -37,10 +37,7 @@ def test_cors_preflight_allows_configured_origin(client):
     )
 
     assert response.status_code == 200
-    assert (
-        response.headers["access-control-allow-origin"]
-        == "http://localhost:3000"
-    )
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
 def test_cors_get_includes_allow_origin_header(client):
@@ -50,7 +47,4 @@ def test_cors_get_includes_allow_origin_header(client):
     )
 
     assert response.status_code == 200
-    assert (
-        response.headers["access-control-allow-origin"]
-        == "http://localhost:3000"
-    )
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"

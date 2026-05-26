@@ -36,9 +36,7 @@ def auth(http):
     """Register a fresh user and return {'token': ..., 'email': ...}."""
     email = unique_email()
     http.post("/auth/register", json={"email": email, "password": "abcdefgh"})
-    login = http.post(
-        "/auth/login", json={"email": email, "password": "abcdefgh"}
-    ).json()
+    login = http.post("/auth/login", json={"email": email, "password": "abcdefgh"}).json()
     return {"token": login["access_token"], "email": email}
 
 

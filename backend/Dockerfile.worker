@@ -1,0 +1,42 @@
+FROM python:3.12-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# System packages:
+#   tesseract-ocr / -eng — fallback OCR
+#   poppler-utils        — pdf2image rasterization
+#   libgl1, libglib2.0-0 — Paddle/Pillow image deps
+#   build-essential      — for any wheels that need compilation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        poppler-utils \
+        libgl1 \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+RUN mkdir -p app && touch app/__init__.py \
+    && pip install --upgrade pip
+
+# Install API deps first; install worker extras best-effort (Paddle wheels
+# don't exist on every arch — Tesseract is the fallback in that case).
+RUN pip install -e ".[dev]" \
+    && (pip install ".[worker]" || (echo "WARN: full worker extras failed; installing without paddle" \
+        && pip install pytesseract pdf2image Pillow numpy)) \
+    && rm -rf /usr/local/lib/python3.12/site-packages/app
+
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
+
+ENV PYTHONPATH=/app
+
+CMD ["arq", "app.workers.config.WorkerSettings"]

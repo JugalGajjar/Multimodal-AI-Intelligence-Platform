@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Uuid
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User
@@ -37,6 +37,7 @@ class Document(Base):
     status: Mapped[DocumentStatus] = mapped_column(
         String(32), nullable=False, default=DocumentStatus.UPLOADED
     )
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

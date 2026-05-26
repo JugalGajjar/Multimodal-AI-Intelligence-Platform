@@ -29,6 +29,21 @@ export function getDocument(token: string, id: string): Promise<DocumentItem> {
   return apiFetch<DocumentItem>(`/api/v1/documents/${id}`, { token });
 }
 
+export type DocumentTextResponse = {
+  id: string;
+  status: DocumentStatus;
+  extracted_text: string | null;
+};
+
+export function getDocumentText(
+  token: string,
+  id: string,
+): Promise<DocumentTextResponse> {
+  return apiFetch<DocumentTextResponse>(`/api/v1/documents/${id}/text`, {
+    token,
+  });
+}
+
 export async function uploadDocument(
   token: string,
   file: File,

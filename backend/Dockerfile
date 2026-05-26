@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md ./
 RUN mkdir -p app && touch app/__init__.py \
     && pip install --upgrade pip \
-    && pip install -e ".[dev]"
+    && pip install -e ".[dev]" \
+    && rm -rf /usr/local/lib/python3.12/site-packages/app
 
 COPY app ./app
 COPY tests ./tests
@@ -23,6 +24,8 @@ COPY alembic ./alembic
 COPY alembic.ini ./alembic.ini
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
+
+ENV PYTHONPATH=/app
 
 EXPOSE 8000
 

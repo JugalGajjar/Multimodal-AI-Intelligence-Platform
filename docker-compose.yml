@@ -81,6 +81,31 @@ services:
       - mmap-net
 
   # ----------------------------------------------------------
+  # Worker — arq + OCR (Paddle primary, Tesseract fallback)
+  # ----------------------------------------------------------
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: mmap-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - mmap-net
+
+  # ----------------------------------------------------------
   # Reverse proxy
   # ----------------------------------------------------------
   traefik:

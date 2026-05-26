@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteDocument,
   formatBytes,
+  getDocumentText,
   listDocuments,
   uploadDocument,
 } from "./documents-api";
@@ -97,6 +98,26 @@ describe("documents-api", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/api\/v1\/documents\/doc-1$/);
     expect((init as RequestInit).method).toBe("DELETE");
+  });
+
+  it("getDocumentText hits /text endpoint with Bearer", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        id: "d1",
+        status: "processed",
+        extracted_text: "hello world",
+      }),
+    );
+
+    const res = await getDocumentText("tok", "d1");
+
+    expect(res.extracted_text).toBe("hello world");
+    expect(res.status).toBe("processed");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/documents\/d1\/text$/);
+    expect((init as RequestInit).headers).toMatchObject({
+      Authorization: "Bearer tok",
+    });
   });
 
   it("formatBytes is human-friendly", () => {
