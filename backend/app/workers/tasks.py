@@ -18,8 +18,8 @@ log = logging.getLogger("mmap.worker")
 
 async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
     """Worker task: OCR → chunk → embed → upsert into Qdrant."""
+    from app.embeddings import embed_texts
     from app.workers.chunking import chunk_text
-    from app.workers.embeddings import embed_texts
     from app.workers.ocr.pipeline import extract_text_from_bytes
 
     async with async_session_maker() as db:

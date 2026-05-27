@@ -88,10 +88,10 @@ async def test_failure_in_embedding_marks_doc_as_failed_with_no_orphan_chunks():
 
     try:
         # Patch the imports the task does internally. Note: the task uses
-        # `from app.workers.embeddings import embed_texts` lazily inside the
+        # `from app.embeddings import embed_texts` lazily inside the
         # function — patching the module attribute is what matters.
         with patch(
-            "app.workers.embeddings.embed_texts",
+            "app.embeddings.embed_texts",
             side_effect=RuntimeError("simulated embedding failure"),
         ):
             result = await process_document_ocr({}, str(doc.id))

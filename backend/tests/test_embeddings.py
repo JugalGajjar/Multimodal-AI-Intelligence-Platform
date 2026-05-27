@@ -3,7 +3,7 @@ so this suite is independent of the ML stack."""
 
 from unittest.mock import MagicMock, patch
 
-from app.workers.embeddings import (
+from app.embeddings import (
     EMBEDDING_DIM,
     EMBEDDING_MODEL_NAME,
     embed_texts,
@@ -28,7 +28,7 @@ def test_constants_match_collection_design():
 
 def test_empty_input_returns_empty_without_loading_model():
     # Must not trigger the lazy import of sentence_transformers.
-    with patch("app.workers.embeddings.get_embedding_model") as get_model:
+    with patch("app.embeddings.get_embedding_model") as get_model:
         out = embed_texts([])
 
     assert out == []
@@ -43,7 +43,7 @@ def test_returns_list_of_lists_with_correct_dim():
         _FakeVector([0.3] * EMBEDDING_DIM),
     ]
 
-    with patch("app.workers.embeddings.get_embedding_model", return_value=fake_model):
+    with patch("app.embeddings.get_embedding_model", return_value=fake_model):
         out = embed_texts(["a", "b", "c"])
 
     assert len(out) == 3
@@ -56,7 +56,7 @@ def test_encode_called_with_normalize_true():
     fake_model = MagicMock()
     fake_model.encode.return_value = [_FakeVector([0.0] * EMBEDDING_DIM)]
 
-    with patch("app.workers.embeddings.get_embedding_model", return_value=fake_model):
+    with patch("app.embeddings.get_embedding_model", return_value=fake_model):
         embed_texts(["only"])
 
     _, kwargs = fake_model.encode.call_args
@@ -72,7 +72,7 @@ def test_encode_called_with_exact_input_texts():
         _FakeVector([0.0] * EMBEDDING_DIM),
     ]
 
-    with patch("app.workers.embeddings.get_embedding_model", return_value=fake_model):
+    with patch("app.embeddings.get_embedding_model", return_value=fake_model):
         embed_texts(["first", "second"])
 
     args, _ = fake_model.encode.call_args
