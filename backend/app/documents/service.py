@@ -83,3 +83,14 @@ async def delete_stored_object(storage_key: str) -> None:
             settings.minio_bucket,
             storage_key,
         )
+
+
+async def delete_vector_points(document_id: str) -> None:
+    """Best-effort Qdrant cleanup. Failure here doesn't fail the request —
+    the Postgres CASCADE has already removed the chunk rows."""
+    try:
+        from app.storage.qdrant_client import delete_points_for_document
+
+        await asyncio.to_thread(delete_points_for_document, document_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("qdrant cleanup failed for doc=%s: %s", document_id, exc)

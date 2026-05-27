@@ -27,3 +27,19 @@ class DocumentTextResponse(BaseModel):
     id: UUID
     status: DocumentStatus
     extracted_text: str | None
+
+
+class ChunkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    chunk_index: int
+    text: str
+    char_start: int
+    char_end: int
+
+
+class ChunkListResponse(BaseModel):
+    document_id: UUID
+    total: int
+    items: list[ChunkResponse]

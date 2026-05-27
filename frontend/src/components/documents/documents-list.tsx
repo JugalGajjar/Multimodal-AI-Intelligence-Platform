@@ -16,6 +16,7 @@ import {
   deleteDocument,
   formatBytes,
   getDocumentText,
+  listDocumentChunks,
   listDocuments,
   type DocumentItem,
   type DocumentListResponse,
@@ -90,6 +91,12 @@ export function DocumentsList() {
                     <p className="truncate font-medium">{doc.filename}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatBytes(doc.size_bytes)} · {doc.content_type}
+                      {doc.status === "processed" && (
+                        <>
+                          {" · "}
+                          <ChunkCount id={doc.id} />
+                        </>
+                      )}
                     </p>
                   </div>
                   <Badge variant={STATUS_VARIANT[doc.status]}>
@@ -121,6 +128,21 @@ export function DocumentsList() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function ChunkCount({ id }: { id: string }) {
+  const token = useAuthStore((s) => s.token);
+  const { data } = useQuery({
+    queryKey: ["documents", id, "chunks", "count"],
+    queryFn: () => listDocumentChunks(token!, id),
+    enabled: !!token,
+  });
+  if (!data) return <span aria-label="loading chunk count">…</span>;
+  return (
+    <span aria-label="chunk count">
+      {data.total} chunk{data.total === 1 ? "" : "s"}
+    </span>
   );
 }
 

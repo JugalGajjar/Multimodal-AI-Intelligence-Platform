@@ -44,6 +44,29 @@ export function getDocumentText(
   });
 }
 
+export type DocumentChunkItem = {
+  id: string;
+  chunk_index: number;
+  text: string;
+  char_start: number;
+  char_end: number;
+};
+
+export type ChunkListResponse = {
+  document_id: string;
+  total: number;
+  items: DocumentChunkItem[];
+};
+
+export function listDocumentChunks(
+  token: string,
+  id: string,
+): Promise<ChunkListResponse> {
+  return apiFetch<ChunkListResponse>(`/api/v1/documents/${id}/chunks`, {
+    token,
+  });
+}
+
 export async function uploadDocument(
   token: string,
   file: File,

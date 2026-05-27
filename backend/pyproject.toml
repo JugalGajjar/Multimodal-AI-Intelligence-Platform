@@ -26,6 +26,7 @@ dependencies = [
     "pyjwt>=2.10,<3.0",
     "minio>=7.2,<8.0",
     "arq>=0.26,<1.0",
+    "qdrant-client>=1.12,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,7 @@ worker = [
     "paddleocr>=2.10",
     "paddlepaddle>=2.6",
     "numpy>=1.26,<2.3",
+    "sentence-transformers>=3.3,<5.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -56,6 +58,10 @@ exclude = ["tests*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Session-scoped event loop so async tests share the asyncpg pool;
+# function-scoped loops cause "Event loop is closed" when reusing connections.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 addopts = "-ra --strict-markers"
 markers = [
     "integration: needs docker compose stack running (skipped by default in unit mode)",

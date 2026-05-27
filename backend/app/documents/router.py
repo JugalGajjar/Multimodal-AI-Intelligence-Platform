@@ -8,13 +8,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import get_current_user
 from app.auth.models import User
 from app.db.session import get_db
+from app.documents.chunks_model import DocumentChunk
 from app.documents.models import Document
 from app.documents.schemas import (
+    ChunkListResponse,
+    ChunkResponse,
     DocumentListResponse,
     DocumentResponse,
     DocumentTextResponse,
 )
-from app.documents.service import delete_stored_object, store_uploaded_file
+from app.documents.service import (
+    delete_stored_object,
+    delete_vector_points,
+    store_uploaded_file,
+)
 from app.documents.validation import (
     MAX_FILE_SIZE_BYTES,
     is_allowed_mime,
@@ -93,6 +100,29 @@ async def get_document(document_id: UUID, current_user: CurrentUserDep, db: DbDe
     return doc
 
 
+@router.get("/{document_id}/chunks", response_model=ChunkListResponse)
+async def list_document_chunks(
+    document_id: UUID, current_user: CurrentUserDep, db: DbDep
+) -> ChunkListResponse:
+    doc = await db.get(Document, document_id)
+    if doc is None or doc.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    stmt = (
+        select(DocumentChunk)
+        .where(DocumentChunk.document_id == document_id)
+        .order_by(DocumentChunk.chunk_index.asc())
+    )
+    result = await db.execute(stmt)
+    chunks = result.scalars().all()
+
+    return ChunkListResponse(
+        document_id=document_id,
+        total=len(chunks),
+        items=[ChunkResponse.model_validate(c) for c in chunks],
+    )
+
+
 @router.get("/{document_id}/text", response_model=DocumentTextResponse)
 async def get_document_text(
     document_id: UUID, current_user: CurrentUserDep, db: DbDep
@@ -114,8 +144,10 @@ async def delete_document(document_id: UUID, current_user: CurrentUserDep, db: D
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     storage_key = doc.storage_key
+    doc_id_str = str(doc.id)
     await db.delete(doc)
     await db.commit()
 
     if storage_key:
         await delete_stored_object(storage_key)
+    await delete_vector_points(doc_id_str)

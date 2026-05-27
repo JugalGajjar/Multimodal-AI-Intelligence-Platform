@@ -20,6 +20,9 @@ def fresh_settings(monkeypatch):
             "POSTGRES_DB",
             "REDIS_HOST",
             "REDIS_PORT",
+            "QDRANT_HOST",
+            "QDRANT_PORT",
+            "MINIO_ENDPOINT",
         ):
             monkeypatch.delenv(k, raising=False)
         if env:

@@ -4,6 +4,7 @@ import {
   deleteDocument,
   formatBytes,
   getDocumentText,
+  listDocumentChunks,
   listDocuments,
   uploadDocument,
 } from "./documents-api";
@@ -115,6 +116,29 @@ describe("documents-api", () => {
     expect(res.status).toBe("processed");
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/api\/v1\/documents\/d1\/text$/);
+    expect((init as RequestInit).headers).toMatchObject({
+      Authorization: "Bearer tok",
+    });
+  });
+
+  it("listDocumentChunks hits /chunks endpoint with Bearer", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        document_id: "d1",
+        total: 2,
+        items: [
+          { id: "c1", chunk_index: 0, text: "a", char_start: 0, char_end: 1 },
+          { id: "c2", chunk_index: 1, text: "b", char_start: 1, char_end: 2 },
+        ],
+      }),
+    );
+
+    const res = await listDocumentChunks("tok", "d1");
+
+    expect(res.total).toBe(2);
+    expect(res.items).toHaveLength(2);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/documents\/d1\/chunks$/);
     expect((init as RequestInit).headers).toMatchObject({
       Authorization: "Bearer tok",
     });

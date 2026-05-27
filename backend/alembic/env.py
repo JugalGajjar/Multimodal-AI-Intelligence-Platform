@@ -10,6 +10,7 @@ from sqlalchemy.engine import Connection
 from app.auth import models as _auth_models  # noqa: F401
 from app.core.config import settings
 from app.documents import models as _documents_models  # noqa: F401
+from app.documents import chunks_model as _chunks_model  # noqa: F401
 from app.db.base import Base
 from app.db.session import engine
 
