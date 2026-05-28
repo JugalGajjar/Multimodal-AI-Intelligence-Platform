@@ -28,6 +28,7 @@ dependencies = [
     "arq>=0.26,<1.0",
     "qdrant-client>=1.12,<2.0",
     "sentence-transformers>=3.3,<5.0",
+    "groq>=0.20",
 ]
 
 [project.optional-dependencies]
@@ -40,15 +41,14 @@ dev = [
     "aiosqlite>=0.20",
 ]
 
-# Heavy ML/OCR deps for the worker container only. Kept out of the API image.
+# Heavy OCR deps for the worker container only. Kept out of the API image.
 worker = [
     "pytesseract>=0.3.13",
     "pdf2image>=1.17",
     "Pillow>=11.0",
-    "paddleocr>=2.10",
-    "paddlepaddle>=2.6",
+    "rapidocr>=2.0",
+    "onnxruntime>=1.18",
     "numpy>=1.26,<2.3",
-    "groq>=0.20",
 ]
 
 [tool.setuptools.packages.find]

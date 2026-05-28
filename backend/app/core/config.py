@@ -62,6 +62,7 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     groq_whisper_model: str = "whisper-large-v3-turbo"
+    groq_reasoning_model: str = "openai/gpt-oss-20b"
 
     @property
     def cors_origins(self) -> list[str]:

@@ -8,7 +8,7 @@ from app.auth.deps import get_current_user
 from app.auth.models import User
 from app.core.config import settings
 from app.db.session import get_db
-from app.rag.openrouter import OpenRouterError, chat_completion
+from app.rag.groq_chat import GroqChatError, chat_completion
 from app.rag.prompts import (
     NO_CONTEXT_FALLBACK_SYSTEM,
     SYSTEM_PROMPT,
@@ -29,10 +29,10 @@ async def chat(
     current_user: CurrentUserDep,
     _db: DbDep,
 ) -> ChatResponse:
-    if not settings.openrouter_api_key:
+    if not settings.groq_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter API key not configured on the server",
+            detail="Groq API key not configured on the server",
         )
 
     chunks = retrieve(
@@ -52,7 +52,7 @@ async def chat(
                 {"role": "user", "content": user_msg},
             ],
         )
-    except OpenRouterError as exc:
+    except GroqChatError as exc:
         # Surface upstream failures rather than 500-ing.
         code = exc.status_code if 400 <= exc.status_code < 600 else 502
         raise HTTPException(status_code=code, detail=str(exc.body)) from exc
@@ -71,6 +71,6 @@ async def chat(
     return ChatResponse(
         answer=answer,
         citations=citations,
-        model=settings.openrouter_reasoning_model,
+        model=settings.groq_reasoning_model,
         used_context=bool(chunks),
     )

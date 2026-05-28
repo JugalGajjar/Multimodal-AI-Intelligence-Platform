@@ -1,34 +1,26 @@
-"""OCR engines. Tesseract is the active engine; PaddleOCR support is kept
-behind an opt-in env flag (`OCR_USE_PADDLE=1`).
+"""OCR engines. RapidOCR (ONNX) is primary; Tesseract is fallback.
 
-Why: the current paddleocr arm64 wheels segfault during inference inside the
-worker container despite initializing cleanly. Tesseract — the documented
-fallback in the plan — is reliable across arches, so we treat it as primary
-in practice and let users opt back into Paddle on x86_64 hosts where it works.
+RapidOCR ships the PaddleOCR-trained models via ONNX Runtime — same model
+lineage as the plan's PaddleOCR primary, but with a slim runtime that works
+reliably on arm64. Heavy imports are wrapped in try/except so the module is
+importable in environments missing one or both engines.
 """
 
 import logging
-import os
 from io import BytesIO
 
 log = logging.getLogger("mmap.ocr")
 
-_USE_PADDLE = os.getenv("OCR_USE_PADDLE", "0") == "1"
+# --- RapidOCR (primary) -------------------------------------------------
+try:
+    from rapidocr import RapidOCR  # type: ignore[import-not-found]
 
-# --- Paddle (opt-in import) ---------------------------------------------
-if _USE_PADDLE:
-    try:
-        from paddleocr import PaddleOCR  # type: ignore[import-not-found]
+    RAPIDOCR_AVAILABLE = True
+except Exception as _rapid_err:  # noqa: BLE001
+    RAPIDOCR_AVAILABLE = False
+    log.warning("RapidOCR unavailable: %r", _rapid_err)
 
-        PADDLE_AVAILABLE = True
-    except Exception as _paddle_err:  # noqa: BLE001
-        PADDLE_AVAILABLE = False
-        log.warning("PaddleOCR unavailable: %r", _paddle_err)
-else:
-    PADDLE_AVAILABLE = False
-    log.info("PaddleOCR disabled (set OCR_USE_PADDLE=1 to opt in)")
-
-# --- Tesseract (best-effort) ---------------------------------------------
+# --- Tesseract (fallback) -----------------------------------------------
 try:
     import pytesseract  # type: ignore[import-not-found]
     from PIL import Image
@@ -36,39 +28,33 @@ try:
     TESSERACT_AVAILABLE = True
 except Exception as _tess_err:  # noqa: BLE001
     TESSERACT_AVAILABLE = False
-    log.warning("Tesseract unavailable: %s", _tess_err)
+    log.warning("Tesseract unavailable: %r", _tess_err)
 
 
-_paddle_singleton = None
+_rapid_singleton = None
 
 
-def _get_paddle():
-    global _paddle_singleton
-    if _paddle_singleton is None:
-        # `show_log` was removed in newer paddleocr; keep init minimal and rely
-        # on default English models.
-        _paddle_singleton = PaddleOCR(use_angle_cls=True, lang="en")
-    return _paddle_singleton
+def _get_rapid():
+    global _rapid_singleton
+    if _rapid_singleton is None:
+        _rapid_singleton = RapidOCR()
+    return _rapid_singleton
 
 
-def ocr_image_bytes_with_paddle(image_bytes: bytes) -> str:
+def ocr_image_bytes_with_rapidocr(image_bytes: bytes) -> str:
     import numpy as np
     from PIL import Image
 
     pil = Image.open(BytesIO(image_bytes)).convert("RGB")
     arr = np.array(pil)
-    result = _get_paddle().ocr(arr, cls=True)
+    result = _get_rapid()(arr)
 
-    lines: list[str] = []
-    if not result or result[0] is None:
+    # rapidocr returns an object with `.txts` (tuple of strings) or None when
+    # nothing was detected.
+    if result is None:
         return ""
-    for line in result[0]:
-        # line = [box_pts, (text, conf)]
-        if len(line) >= 2 and isinstance(line[1], tuple | list):
-            text = line[1][0]
-            if text:
-                lines.append(str(text))
-    return "\n".join(lines)
+    txts = getattr(result, "txts", None) or ()
+    return "\n".join(t for t in txts if t)
 
 
 def ocr_image_bytes_with_tesseract(image_bytes: bytes) -> str:
@@ -77,15 +63,15 @@ def ocr_image_bytes_with_tesseract(image_bytes: bytes) -> str:
 
 
 def ocr_image_bytes(image_bytes: bytes) -> str:
-    """Try Paddle first, fall back to Tesseract."""
-    if PADDLE_AVAILABLE:
+    """Try RapidOCR first, fall back to Tesseract."""
+    if RAPIDOCR_AVAILABLE:
         try:
-            text = ocr_image_bytes_with_paddle(image_bytes)
+            text = ocr_image_bytes_with_rapidocr(image_bytes)
             if text.strip():
                 return text
-            log.info("Paddle returned empty; falling back to Tesseract")
+            log.info("RapidOCR returned empty; falling back to Tesseract")
         except Exception as exc:  # noqa: BLE001
-            log.warning("Paddle OCR failed (%s); falling back to Tesseract", exc)
+            log.warning("RapidOCR failed (%s); falling back to Tesseract", exc)
     if TESSERACT_AVAILABLE:
         return ocr_image_bytes_with_tesseract(image_bytes)
-    raise RuntimeError("No OCR engine available (neither PaddleOCR nor Tesseract installed)")
+    raise RuntimeError("No OCR engine available (neither RapidOCR nor Tesseract installed)")
