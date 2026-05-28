@@ -27,9 +27,14 @@ class TestExtractTextFromBytes:
     def test_markdown_text(self):
         assert extract_text_from_bytes(b"# hi", "text/markdown; charset=utf-8") == "# hi"
 
-    def test_audio_returns_empty_placeholder(self):
-        # Audio handling is Phase 3 (Groq Whisper) — return empty for now.
-        assert extract_text_from_bytes(b"\x00\x01", "audio/mpeg") == ""
+    def test_audio_dispatches_to_transcription(self):
+        with patch(
+            "app.transcription.whisper.transcribe_audio_bytes",
+            return_value="hello from whisper",
+        ) as transcribe:
+            out = extract_text_from_bytes(b"\x00\x01\x02\x03", "audio/mpeg")
+            transcribe.assert_called_once()
+            assert out == "hello from whisper"
 
     def test_unknown_mime_raises(self):
         with pytest.raises(ValueError):

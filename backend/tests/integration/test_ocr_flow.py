@@ -106,8 +106,10 @@ def test_text_endpoint_404_for_other_users_doc(http, auth):
     assert r.status_code == 404
 
 
-def test_audio_upload_marked_processed_with_empty_text(http, auth):
-    """Phase 3 will populate audio; for now Phase 2.2 returns empty placeholder."""
+def test_audio_upload_with_invalid_bytes_marks_failed(http, auth):
+    """Phase 3.1: audio now goes through Groq Whisper. Invalid bytes should
+    cause Groq to reject the file → worker marks the doc FAILED. (See
+    `test_audio_flow.py` for the happy-path round-trip with a real WAV.)"""
     body = b"fake mp3 bytes"
     upload = http.post(
         "/documents",
@@ -116,6 +118,7 @@ def test_audio_upload_marked_processed_with_empty_text(http, auth):
     ).json()
     status = wait_for_status(http, auth, upload["id"])
 
-    assert status == "processed"
+    assert status == "failed"
     text = http.get(f"/documents/{upload['id']}/text", headers=auth).json()
-    assert text["extracted_text"] == ""
+    assert text["extracted_text"] is not None
+    assert "pipeline error" in text["extracted_text"].lower()

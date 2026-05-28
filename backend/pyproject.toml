@@ -48,6 +48,7 @@ worker = [
     "paddleocr>=2.10",
     "paddlepaddle>=2.6",
     "numpy>=1.26,<2.3",
+    "groq>=0.20",
 ]
 
 [tool.setuptools.packages.find]
