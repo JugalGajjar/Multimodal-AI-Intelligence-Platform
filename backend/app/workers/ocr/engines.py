@@ -1,23 +1,32 @@
-"""OCR engines. Paddle is primary; Tesseract is fallback.
+"""OCR engines. Tesseract is the active engine; PaddleOCR support is kept
+behind an opt-in env flag (`OCR_USE_PADDLE=1`).
 
-All ML/heavy imports are wrapped in try/except so the module can be imported
-in environments where Paddle isn't available — we just disable that engine.
+Why: the current paddleocr arm64 wheels segfault during inference inside the
+worker container despite initializing cleanly. Tesseract — the documented
+fallback in the plan — is reliable across arches, so we treat it as primary
+in practice and let users opt back into Paddle on x86_64 hosts where it works.
 """
 
 import logging
+import os
 from io import BytesIO
 
 log = logging.getLogger("mmap.ocr")
 
-# --- Paddle (best-effort import) ----------------------------------------
-try:
-    from paddleocr import PaddleOCR  # type: ignore[import-not-found]
+_USE_PADDLE = os.getenv("OCR_USE_PADDLE", "0") == "1"
 
-    PADDLE_AVAILABLE = True
-except Exception as _paddle_err:  # noqa: BLE001
+# --- Paddle (opt-in import) ---------------------------------------------
+if _USE_PADDLE:
+    try:
+        from paddleocr import PaddleOCR  # type: ignore[import-not-found]
+
+        PADDLE_AVAILABLE = True
+    except Exception as _paddle_err:  # noqa: BLE001
+        PADDLE_AVAILABLE = False
+        log.warning("PaddleOCR unavailable: %r", _paddle_err)
+else:
     PADDLE_AVAILABLE = False
-    _PADDLE_IMPORT_ERROR = repr(_paddle_err)
-    log.warning("PaddleOCR unavailable: %s", _PADDLE_IMPORT_ERROR)
+    log.info("PaddleOCR disabled (set OCR_USE_PADDLE=1 to opt in)")
 
 # --- Tesseract (best-effort) ---------------------------------------------
 try:
@@ -36,7 +45,9 @@ _paddle_singleton = None
 def _get_paddle():
     global _paddle_singleton
     if _paddle_singleton is None:
-        _paddle_singleton = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+        # `show_log` was removed in newer paddleocr; keep init minimal and rely
+        # on default English models.
+        _paddle_singleton = PaddleOCR(use_angle_cls=True, lang="en")
     return _paddle_singleton
 
 

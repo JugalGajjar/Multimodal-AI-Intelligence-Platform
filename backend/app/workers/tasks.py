@@ -34,8 +34,7 @@ async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
 
         try:
             data = await asyncio.to_thread(_download_bytes, doc.storage_key)
-            text = await asyncio.to_thread(
-                extract_text_from_bytes,
+            text = await extract_text_from_bytes(
                 data,
                 doc.content_type,
                 filename=doc.filename,
