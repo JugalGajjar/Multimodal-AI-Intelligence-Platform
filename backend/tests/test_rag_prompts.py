@@ -1,9 +1,11 @@
-"""Unit tests for the RAG prompt assembly."""
+"""Unit tests for the RAG prompt assembly (chunks + graph)."""
 
+from app.rag.graph_expansion import GraphFact, GraphRelation
 from app.rag.prompts import (
     NO_CONTEXT_FALLBACK_SYSTEM,
     SYSTEM_PROMPT,
     build_context_block,
+    build_graph_block,
     build_user_message,
 )
 from app.rag.retrieval import RetrievedChunk
@@ -19,14 +21,21 @@ def _chunk(idx: int, text: str, score: float = 0.9) -> RetrievedChunk:
     )
 
 
+def _fact(name: str, relations: list[GraphRelation] | None = None) -> GraphFact:
+    return GraphFact(
+        name=name,
+        type="Technology",
+        description=f"{name} description",
+        relations=relations or [],
+    )
+
+
 class TestBuildContextBlock:
     def test_numbers_chunks_starting_at_1(self):
         out = build_context_block([_chunk(0, "alpha"), _chunk(1, "beta")])
 
-        assert "[1]" in out
-        assert "[2]" in out
-        assert "alpha" in out
-        assert "beta" in out
+        assert "[1]" in out and "[2]" in out
+        assert "alpha" in out and "beta" in out
 
     def test_empty_chunks_returns_empty_string(self):
         assert build_context_block([]) == ""
@@ -38,28 +47,97 @@ class TestBuildContextBlock:
         assert "0.840" in out
 
 
+class TestBuildGraphBlock:
+    def test_renders_entity_header_and_arrows(self):
+        facts = [
+            _fact(
+                "Qdrant",
+                relations=[
+                    GraphRelation(
+                        relation="uses",
+                        direction="out",
+                        other="Cosine Distance",
+                    ),
+                    GraphRelation(
+                        relation="is part of",
+                        direction="in",
+                        other="MMAP Platform",
+                    ),
+                ],
+            )
+        ]
+
+        out = build_graph_block(facts)
+
+        assert "Qdrant (Technology)" in out
+        assert "→ uses Cosine Distance" in out
+        assert "← is part of MMAP Platform" in out
+
+    def test_empty_facts_returns_empty_string(self):
+        assert build_graph_block([]) == ""
+
+    def test_renders_multiple_entities(self):
+        facts = [_fact("A"), _fact("B")]
+
+        out = build_graph_block(facts)
+
+        assert "A (Technology)" in out
+        assert "B (Technology)" in out
+
+
 class TestBuildUserMessage:
-    def test_with_chunks_includes_context_and_question(self):
-        msg = build_user_message(
-            "What is X?",
-            [_chunk(0, "X is defined as foo.")],
-        )
+    def test_with_chunks_only_includes_passages_section(self):
+        msg = build_user_message("What is X?", [_chunk(0, "X is defined as foo.")])
 
         assert "Context passages:" in msg
-        assert "[1]" in msg
+        assert "Knowledge-graph facts:" not in msg
         assert "X is defined as foo." in msg
         assert "Question: What is X?" in msg
 
-    def test_without_chunks_returns_raw_query(self):
-        msg = build_user_message("just a question", [])
+    def test_with_chunks_and_facts_includes_both_sections(self):
+        msg = build_user_message(
+            query="What uses cosine?",
+            chunks=[_chunk(0, "Qdrant is the vector DB")],
+            facts=[
+                _fact(
+                    "Qdrant",
+                    relations=[
+                        GraphRelation(
+                            relation="uses",
+                            direction="out",
+                            other="Cosine Distance",
+                        )
+                    ],
+                )
+            ],
+        )
 
-        assert msg == "just a question"
+        assert "Context passages:" in msg
+        assert "Knowledge-graph facts:" in msg
+        assert "Qdrant" in msg
+        assert "Cosine Distance" in msg
+
+    def test_with_facts_only_still_works(self):
+        msg = build_user_message(
+            query="What uses cosine?",
+            chunks=[],
+            facts=[_fact("Qdrant")],
+        )
+
+        assert "Knowledge-graph facts:" in msg
+        assert "Qdrant" in msg
+
+    def test_without_chunks_or_facts_returns_raw_query(self):
+        assert build_user_message("just a question", []) == "just a question"
 
 
 class TestSystemPrompts:
     def test_main_prompt_mentions_inline_citations(self):
-        assert "[N]" in SYSTEM_PROMPT or "[" in SYSTEM_PROMPT
+        assert "[N]" in SYSTEM_PROMPT
         assert "context" in SYSTEM_PROMPT.lower()
+
+    def test_main_prompt_mentions_graph(self):
+        assert "graph" in SYSTEM_PROMPT.lower()
 
     def test_no_context_prompt_steers_user_to_upload(self):
         assert "upload" in NO_CONTEXT_FALLBACK_SYSTEM.lower()

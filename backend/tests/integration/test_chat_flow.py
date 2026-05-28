@@ -185,6 +185,19 @@ def test_chat_503_when_api_key_missing(http, auth, monkeypatch):
     assert r.status_code in (200, 429, 502, 503)
 
 
+def test_chat_response_includes_used_graph_flag(http, auth):
+    """`used_graph` field is always present (default False), preserving the
+    backward-compatible contract while exposing graph-augmented retrieval."""
+    r = http.post("/chat", headers=auth, json={"query": "anything", "top_k": 1})
+    if r.status_code == 200:
+        body = r.json()
+        assert "used_graph" in body
+        assert "entities_used" in body
+        assert isinstance(body["entities_used"], list)
+    else:
+        assert r.status_code in (429, 502, 503)
+
+
 async def test_chat_with_unit_patched_llm(http, auth):
     """Patch chat_completion in-process to bypass OpenRouter rate-limits and
     deterministically verify the full retrieval + citation path. Async so it
@@ -223,3 +236,48 @@ async def test_chat_with_unit_patched_llm(http, auth):
     assert len(response.citations) >= 1
     assert all(str(c.document_id) == doc["id"] for c in response.citations)
     assert "BAAI/bge-small-en-v1.5" in response.answer
+
+
+async def test_chat_includes_graph_facts_when_graph_populated(http, auth):
+    """Upload doc → wait for graph ingest → graph expansion should produce
+    entity facts and flip used_graph=True."""
+    import time as _time
+
+    from sqlalchemy import select
+
+    from app.auth.models import User
+    from app.db.session import async_session_maker
+    from app.rag import router as rag_router
+    from app.rag.schemas import ChatRequest
+
+    doc = upload_text(http, auth)
+    assert wait_for_processed(http, auth, doc["id"]) == "processed"
+
+    # Wait for the graph ingest (post-processed, fire-and-forget) to land.
+    deadline = _time.time() + 90.0
+    while _time.time() < deadline:
+        body = http.get("/graph/entities", headers=auth).json()
+        if body["total"] >= 3:
+            break
+        _time.sleep(1.0)
+    if http.get("/graph/entities", headers=auth).json()["total"] == 0:
+        pytest.skip("graph ingest returned 0 — likely Groq free-tier rate-limit")
+
+    me = http.get("/auth/me", headers=auth).json()
+    async with async_session_maker() as db:
+        user = (await db.execute(select(User).where(User.id == me["id"]))).scalar_one()
+        with patch(
+            "app.rag.router.chat_completion",
+            return_value="Synthetic answer mentioning Qdrant.",
+        ):
+            resp = await rag_router.chat(
+                payload=ChatRequest(
+                    query="What does Qdrant relate to in this document?",
+                    top_k=3,
+                ),
+                current_user=user,
+                _db=db,
+            )
+
+    assert resp.used_graph is True
+    assert len(resp.entities_used) >= 1

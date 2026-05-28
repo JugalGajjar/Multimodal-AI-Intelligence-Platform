@@ -7,6 +7,7 @@ os.environ.setdefault("POSTGRES_HOST", "127.0.0.1")
 os.environ.setdefault("REDIS_HOST", "127.0.0.1")
 os.environ.setdefault("QDRANT_HOST", "127.0.0.1")
 os.environ.setdefault("MINIO_ENDPOINT", "127.0.0.1:9000")
+os.environ.setdefault("NEO4J_URI", "bolt://127.0.0.1:7687")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

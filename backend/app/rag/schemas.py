@@ -17,8 +17,25 @@ class Citation(BaseModel):
     text_preview: str
 
 
+class GraphRelationEdge(BaseModel):
+    relation: str
+    direction: str  # "out" or "in"
+    other: str
+    other_type: str = ""
+    other_description: str = ""
+
+
+class EntityUsed(BaseModel):
+    name: str
+    type: str = "Concept"
+    description: str = ""
+    relations: list[GraphRelationEdge] = []
+
+
 class ChatResponse(BaseModel):
     answer: str
     citations: list[Citation]
+    entities_used: list[EntityUsed] = []
     model: str
     used_context: bool
+    used_graph: bool = False

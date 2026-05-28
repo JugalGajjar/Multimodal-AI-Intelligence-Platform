@@ -145,6 +145,52 @@ async def list_relationships_for_entity(
         return [dict(record) async for record in result]
 
 
+async def get_entity_facts(
+    user_id: str, names: list[str], *, limit_relations: int = 25
+) -> list[dict[str, Any]]:
+    """For each entity in `names` belonging to `user_id`, return the entity
+    plus its 1-hop neighbours (in either direction) as a flat dict.
+
+    Case-insensitive name matching; the canonical stored name is returned.
+    Shape:
+        {
+          "name": str, "type": str, "description": str,
+          "relations": [{"relation": str, "direction": "out"|"in",
+                         "other": str, "other_type": str,
+                         "other_description": str}, ...]
+        }
+    """
+    if not names:
+        return []
+
+    driver = await get_driver()
+    lowered = list({n.lower() for n in names})
+
+    async with driver.session() as session:
+        result = await session.run(
+            """
+            MATCH (e:Entity {user_id: $user_id})
+            WHERE toLower(e.name) IN $lower_names
+            OPTIONAL MATCH (e)-[r:RELATES_TO]-(other:Entity)
+            WITH e,
+                 CASE WHEN startNode(r) = e THEN 'out' ELSE 'in' END AS dir,
+                 r.relation AS rel, other
+            WITH e, collect({direction: dir, relation: rel,
+                             other: other.name, other_type: other.type,
+                             other_description: other.description})[..$limit] AS rels
+            RETURN
+                e.name AS name,
+                e.type AS type,
+                e.description AS description,
+                [x IN rels WHERE x.other IS NOT NULL] AS relations
+            """,
+            user_id=user_id,
+            lower_names=lowered,
+            limit=limit_relations,
+        )
+        return [dict(record) async for record in result]
+
+
 async def delete_document_traces(user_id: str, document_id: str) -> None:
     """When a document is deleted, prune it from entity/edge document_ids and
     delete entities/edges that no longer point to any document."""
