@@ -18,6 +18,7 @@ from app.documents.schemas import (
     DocumentTextResponse,
 )
 from app.documents.service import (
+    delete_graph_traces,
     delete_stored_object,
     delete_vector_points,
     store_uploaded_file,
@@ -145,9 +146,11 @@ async def delete_document(document_id: UUID, current_user: CurrentUserDep, db: D
 
     storage_key = doc.storage_key
     doc_id_str = str(doc.id)
+    user_id_str = str(doc.user_id)
     await db.delete(doc)
     await db.commit()
 
     if storage_key:
         await delete_stored_object(storage_key)
     await delete_vector_points(doc_id_str)
+    await delete_graph_traces(user_id_str, doc_id_str)

@@ -70,6 +70,16 @@ async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
 
             doc.status = DocumentStatus.PROCESSED
             await db.commit()
+
+            # Non-blocking knowledge-graph ingestion. Failure here (LLM rate
+            # limit, Neo4j down) must NOT mark the doc as failed — vector RAG
+            # still works without entities.
+            if text.strip():
+                await _ingest_graph(
+                    text=text,
+                    user_id=str(doc.user_id),
+                    document_id=str(doc.id),
+                )
             return "processed"
 
         except Exception as exc:  # noqa: BLE001
@@ -130,6 +140,49 @@ def _upsert_qdrant_points(
         for row, vec in zip(chunk_rows, vectors, strict=True)
     ]
     client.upsert(collection_name=COLLECTION_NAME, points=points, wait=True)
+
+
+async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
+    """Extract entities/relations from the full document text and persist
+    them to Neo4j. Logs and swallows errors so the worker stays best-effort."""
+    try:
+        from app.graph.extraction import safe_extract_entities
+        from app.graph.neo4j_client import (
+            ensure_indexes,
+            upsert_entity,
+            upsert_relationship,
+        )
+
+        result = await safe_extract_entities(text)
+        if not result.entities:
+            log.info("graph: no entities extracted for doc=%s", document_id)
+            return
+
+        await ensure_indexes()
+        for e in result.entities:
+            await upsert_entity(
+                user_id=user_id,
+                document_id=document_id,
+                name=e.name,
+                entity_type=e.type,
+                description=e.description,
+            )
+        for r in result.relationships:
+            await upsert_relationship(
+                user_id=user_id,
+                document_id=document_id,
+                source=r.source,
+                target=r.target,
+                relation=r.relation,
+            )
+        log.info(
+            "graph: doc=%s entities=%d rels=%d",
+            document_id,
+            len(result.entities),
+            len(result.relationships),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("graph ingest failed (non-blocking): %s", exc)
 
 
 async def fetch_document(document_id: str) -> Document | None:

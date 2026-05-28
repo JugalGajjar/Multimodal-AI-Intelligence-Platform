@@ -26,6 +26,7 @@ async def chat_completion(
     model: str | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = None,
+    response_format: dict | None = None,
     timeout: float = 60.0,
 ) -> str:
     """Call Groq chat completions and return the assistant text.
@@ -42,13 +43,17 @@ async def chat_completion(
         raise GroqChatError(500, {"detail": f"groq SDK not installed: {exc}"}) from exc
 
     client = AsyncGroq(api_key=settings.groq_api_key, timeout=timeout)
+    create_kwargs: dict = {
+        "model": model or settings.groq_reasoning_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_completion_tokens": max_tokens or 4096,
+    }
+    if response_format is not None:
+        create_kwargs["response_format"] = response_format
+
     try:
-        completion = await client.chat.completions.create(
-            model=model or settings.groq_reasoning_model,
-            messages=messages,  # type: ignore[arg-type]
-            temperature=temperature,
-            max_completion_tokens=max_tokens or 4096,
-        )
+        completion = await client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
     except Exception as exc:  # noqa: BLE001  — Groq SDK raises various subclasses
         status_attr = getattr(exc, "status_code", None) or getattr(exc, "status", None)
         status_code = int(status_attr) if status_attr is not None else 502

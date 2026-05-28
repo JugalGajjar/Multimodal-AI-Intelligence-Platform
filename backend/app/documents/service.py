@@ -94,3 +94,14 @@ async def delete_vector_points(document_id: str) -> None:
         await asyncio.to_thread(delete_points_for_document, document_id)
     except Exception as exc:  # noqa: BLE001
         log.warning("qdrant cleanup failed for doc=%s: %s", document_id, exc)
+
+
+async def delete_graph_traces(user_id: str, document_id: str) -> None:
+    """Best-effort Neo4j cleanup — drop this doc's id from entity/edge
+    document_ids arrays and delete orphans."""
+    try:
+        from app.graph.neo4j_client import delete_document_traces
+
+        await delete_document_traces(user_id, document_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("graph cleanup failed for doc=%s: %s", document_id, exc)

@@ -1,0 +1,170 @@
+"""Async Neo4j driver singleton + small query helpers.
+
+Schema (multi-tenant via user_id property):
+    (:Entity {user_id, name, type, description, document_ids, ...})
+    (a:Entity)-[:RELATES_TO {relation, document_ids}]->(b:Entity)
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from neo4j import AsyncGraphDatabase  # type: ignore[import-not-found]
+
+from app.core.config import settings
+
+_driver: Any = None
+
+
+async def get_driver():
+    """Process-wide async driver singleton."""
+    global _driver
+    if _driver is None:
+        _driver = AsyncGraphDatabase.driver(
+            settings.neo4j_uri,
+            auth=(settings.neo4j_user, settings.neo4j_password),
+        )
+    return _driver
+
+
+async def close_driver() -> None:
+    global _driver
+    if _driver is not None:
+        await _driver.close()
+        _driver = None
+
+
+async def ensure_indexes() -> None:
+    driver = await get_driver()
+    async with driver.session() as session:
+        await session.run(
+            "CREATE INDEX entity_user_name IF NOT EXISTS FOR (e:Entity) ON (e.user_id, e.name)"
+        )
+
+
+_UPSERT_ENTITY_CYPHER = """
+MERGE (e:Entity {user_id: $user_id, name: $name})
+ON CREATE SET
+    e.type = $type,
+    e.description = $description,
+    e.created_at = datetime(),
+    e.document_ids = [$doc_id]
+SET
+    e.last_seen_at = datetime(),
+    e.type = coalesce(e.type, $type),
+    e.description = coalesce(e.description, $description),
+    e.document_ids = CASE
+        WHEN $doc_id IN coalesce(e.document_ids, []) THEN e.document_ids
+        ELSE coalesce(e.document_ids, []) + $doc_id
+    END
+RETURN e
+"""
+
+_UPSERT_REL_CYPHER = """
+MATCH (a:Entity {user_id: $user_id, name: $source})
+MATCH (b:Entity {user_id: $user_id, name: $target})
+MERGE (a)-[r:RELATES_TO {relation: $relation}]->(b)
+ON CREATE SET r.created_at = datetime(), r.document_ids = [$doc_id]
+SET r.document_ids = CASE
+    WHEN $doc_id IN coalesce(r.document_ids, []) THEN r.document_ids
+    ELSE coalesce(r.document_ids, []) + $doc_id
+END
+RETURN r
+"""
+
+
+async def upsert_entity(
+    *,
+    user_id: str,
+    document_id: str,
+    name: str,
+    entity_type: str,
+    description: str,
+) -> None:
+    driver = await get_driver()
+    async with driver.session() as session:
+        await session.run(
+            _UPSERT_ENTITY_CYPHER,
+            user_id=user_id,
+            doc_id=document_id,
+            name=name,
+            type=entity_type,
+            description=description,
+        )
+
+
+async def upsert_relationship(
+    *,
+    user_id: str,
+    document_id: str,
+    source: str,
+    target: str,
+    relation: str,
+) -> None:
+    driver = await get_driver()
+    async with driver.session() as session:
+        await session.run(
+            _UPSERT_REL_CYPHER,
+            user_id=user_id,
+            doc_id=document_id,
+            source=source,
+            target=target,
+            relation=relation,
+        )
+
+
+async def list_user_entities(user_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+    driver = await get_driver()
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (e:Entity {user_id: $user_id}) "
+            "RETURN e.name AS name, e.type AS type, "
+            "e.description AS description, e.document_ids AS document_ids "
+            "ORDER BY e.last_seen_at DESC LIMIT $limit",
+            user_id=user_id,
+            limit=limit,
+        )
+        return [dict(record) async for record in result]
+
+
+async def list_relationships_for_entity(
+    user_id: str, entity_name: str, *, limit: int = 50
+) -> list[dict[str, Any]]:
+    """1-hop neighbours of `entity_name`, in either direction."""
+    driver = await get_driver()
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (a:Entity {user_id: $user_id, name: $name})-[r:RELATES_TO]-(b:Entity) "
+            "RETURN a.name AS source, b.name AS target, r.relation AS relation, "
+            "b.type AS target_type, b.description AS target_description "
+            "LIMIT $limit",
+            user_id=user_id,
+            name=entity_name,
+            limit=limit,
+        )
+        return [dict(record) async for record in result]
+
+
+async def delete_document_traces(user_id: str, document_id: str) -> None:
+    """When a document is deleted, prune it from entity/edge document_ids and
+    delete entities/edges that no longer point to any document."""
+    driver = await get_driver()
+    async with driver.session() as session:
+        await session.run(
+            "MATCH (e:Entity {user_id: $user_id}) "
+            "WHERE $doc_id IN coalesce(e.document_ids, []) "
+            "SET e.document_ids = [x IN e.document_ids WHERE x <> $doc_id] "
+            "WITH e WHERE size(coalesce(e.document_ids, [])) = 0 "
+            "DETACH DELETE e",
+            user_id=user_id,
+            doc_id=document_id,
+        )
+        # Also prune doc_id from any surviving relationships
+        await session.run(
+            "MATCH ()-[r:RELATES_TO]->() "
+            "WHERE $doc_id IN coalesce(r.document_ids, []) "
+            "SET r.document_ids = [x IN r.document_ids WHERE x <> $doc_id] "
+            "WITH r WHERE size(coalesce(r.document_ids, [])) = 0 "
+            "DELETE r",
+            doc_id=document_id,
+        )
