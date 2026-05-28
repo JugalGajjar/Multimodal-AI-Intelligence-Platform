@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/auth-gate";
+import { ChatPanel } from "@/components/chat/chat-panel";
 import { DocumentUploader } from "@/components/documents/document-uploader";
 import { DocumentsList } from "@/components/documents/documents-list";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ function DashboardInner() {
       </div>
       <DocumentUploader />
       <DocumentsList />
+      <ChatPanel />
     </main>
   );
 }
