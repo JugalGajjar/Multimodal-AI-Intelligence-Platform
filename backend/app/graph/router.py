@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.auth.deps import get_current_user
 from app.auth.models import User
 from app.graph.neo4j_client import (
+    get_graph_snapshot,
     list_relationships_for_entity,
     list_user_entities,
 )
@@ -41,6 +42,27 @@ class NeighbourListResponse(BaseModel):
     items: list[NeighbourItem]
 
 
+class GraphNode(BaseModel):
+    id: str  # canonical entity name; stable across snapshots for layout reuse
+    name: str
+    type: str = "Concept"
+    description: str = ""
+    document_ids: list[str] = []
+
+
+class GraphLink(BaseModel):
+    source: str
+    target: str
+    relation: str
+
+
+class GraphSnapshotResponse(BaseModel):
+    nodes: list[GraphNode]
+    links: list[GraphLink]
+    node_count: int
+    link_count: int
+
+
 @router.get("/entities", response_model=EntityListResponse)
 async def list_entities(
     current_user: CurrentUserDep,
@@ -57,6 +79,44 @@ async def list_entities(
         for row in rows
     ]
     return EntityListResponse(items=items, total=len(items))
+
+
+@router.get("/snapshot", response_model=GraphSnapshotResponse)
+async def get_snapshot(
+    current_user: CurrentUserDep,
+    limit_nodes: int = Query(default=500, ge=1, le=2000),
+    limit_links: int = Query(default=2000, ge=1, le=10000),
+) -> GraphSnapshotResponse:
+    """Full graph for the current user, suitable for a force-directed UI."""
+    data = await get_graph_snapshot(
+        str(current_user.id),
+        limit_nodes=limit_nodes,
+        limit_links=limit_links,
+    )
+    nodes = [
+        GraphNode(
+            id=n["id"],
+            name=n["name"],
+            type=n.get("type") or "Concept",
+            description=n.get("description") or "",
+            document_ids=list(n.get("document_ids") or []),
+        )
+        for n in data["nodes"]
+    ]
+    links = [
+        GraphLink(
+            source=link["source"],
+            target=link["target"],
+            relation=link["relation"],
+        )
+        for link in data["links"]
+    ]
+    return GraphSnapshotResponse(
+        nodes=nodes,
+        links=links,
+        node_count=len(nodes),
+        link_count=len(links),
+    )
 
 
 @router.get("/entities/{name}/neighbours", response_model=NeighbourListResponse)

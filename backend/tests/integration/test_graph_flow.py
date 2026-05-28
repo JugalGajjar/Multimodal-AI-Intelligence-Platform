@@ -184,3 +184,82 @@ def test_delete_document_prunes_orphan_entities(http, auth):
 def test_unauthenticated_entities_returns_401_or_403(http):
     r = http.get("/graph/entities")
     assert r.status_code in (401, 403)
+
+
+def test_snapshot_empty_user_returns_empty_graph(http, auth):
+    r = http.get("/graph/snapshot", headers=auth)
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {
+        "nodes": [],
+        "links": [],
+        "node_count": 0,
+        "link_count": 0,
+    }
+
+
+def test_snapshot_includes_nodes_and_links_after_upload(http, auth):
+    doc = upload_text(http, auth)
+    assert wait_for_processed(http, auth, doc["id"]) == "processed"
+    total = wait_for_entities(http, auth, expected_at_least=3, timeout=90.0)
+    if total == 0:
+        pytest.skip("LLM extraction returned 0 — likely Groq free-tier rate-limit")
+
+    r = http.get("/graph/snapshot", headers=auth)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["node_count"] >= 3
+    assert isinstance(body["links"], list)
+
+    # Every link endpoint must exist in nodes (no dangling refs).
+    node_ids = {n["id"] for n in body["nodes"]}
+    for link in body["links"]:
+        assert link["source"] in node_ids
+        assert link["target"] in node_ids
+        assert isinstance(link["relation"], str) and link["relation"]
+
+    # Every node carries the required display fields.
+    for n in body["nodes"]:
+        assert n["id"] and n["name"]
+        assert "type" in n and isinstance(n["type"], str)
+        assert isinstance(n["document_ids"], list)
+
+
+def test_snapshot_respects_limit_nodes(http, auth):
+    doc = upload_text(http, auth)
+    assert wait_for_processed(http, auth, doc["id"]) == "processed"
+    if wait_for_entities(http, auth, expected_at_least=3, timeout=90.0) == 0:
+        pytest.skip("LLM extraction returned 0 — likely Groq free-tier rate-limit")
+
+    r = http.get("/graph/snapshot?limit_nodes=2", headers=auth)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["node_count"] <= 2
+
+
+def test_snapshot_isolated_between_users(http, auth):
+    doc = upload_text(http, auth)
+    assert wait_for_processed(http, auth, doc["id"]) == "processed"
+    if wait_for_entities(http, auth, expected_at_least=1, timeout=90.0) == 0:
+        pytest.skip("LLM extraction returned 0 — likely Groq free-tier rate-limit")
+
+    other_email = unique_email()
+    httpx.post(
+        f"{BASE_URL}/auth/register",
+        json={"email": other_email, "password": "abcdefgh"},
+    )
+    other_tok = httpx.post(
+        f"{BASE_URL}/auth/login",
+        json={"email": other_email, "password": "abcdefgh"},
+    ).json()["access_token"]
+    b_auth = {"Authorization": f"Bearer {other_tok}"}
+
+    body = http.get("/graph/snapshot", headers=b_auth).json()
+    assert body["node_count"] == 0
+    assert body["link_count"] == 0
+
+
+def test_snapshot_unauthenticated_returns_401_or_403(http):
+    r = http.get("/graph/snapshot")
+    assert r.status_code in (401, 403)

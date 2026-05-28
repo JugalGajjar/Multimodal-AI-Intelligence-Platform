@@ -145,6 +145,55 @@ async def list_relationships_for_entity(
         return [dict(record) async for record in result]
 
 
+async def get_graph_snapshot(
+    user_id: str, *, limit_nodes: int = 500, limit_links: int = 2000
+) -> dict[str, list[dict[str, Any]]]:
+    """Return a {nodes, links} snapshot of a user's full graph.
+
+    `nodes` carry display metadata (type, description, document_ids).
+    `links` are directed RELATES_TO edges between included nodes. We only
+    return edges where BOTH endpoints are in the returned node set so the
+    frontend doesn't have to handle dangling refs.
+    """
+    driver = await get_driver()
+    async with driver.session() as session:
+        nodes_result = await session.run(
+            """
+            MATCH (e:Entity {user_id: $user_id})
+            RETURN
+                e.name AS id,
+                e.name AS name,
+                coalesce(e.type, 'Concept') AS type,
+                coalesce(e.description, '') AS description,
+                coalesce(e.document_ids, []) AS document_ids
+            ORDER BY e.last_seen_at DESC
+            LIMIT $limit
+            """,
+            user_id=user_id,
+            limit=limit_nodes,
+        )
+        nodes = [dict(r) async for r in nodes_result]
+
+        if not nodes:
+            return {"nodes": [], "links": []}
+
+        ids = {n["id"] for n in nodes}
+        links_result = await session.run(
+            """
+            MATCH (a:Entity {user_id: $user_id})-[r:RELATES_TO]->(b:Entity {user_id: $user_id})
+            WHERE a.name IN $names AND b.name IN $names
+            RETURN a.name AS source, b.name AS target, r.relation AS relation
+            LIMIT $limit
+            """,
+            user_id=user_id,
+            names=list(ids),
+            limit=limit_links,
+        )
+        links = [dict(r) async for r in links_result]
+
+    return {"nodes": nodes, "links": links}
+
+
 async def get_entity_facts(
     user_id: str, names: list[str], *, limit_relations: int = 25
 ) -> list[dict[str, Any]]:
