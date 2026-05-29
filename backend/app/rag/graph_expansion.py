@@ -1,9 +1,17 @@
-"""Find entities from the user's knowledge graph that are mentioned in the
-retrieved chunks or the user's query, and pull their 1-hop neighbours.
+"""Expand retrieval with knowledge-graph facts the user has stored.
 
-Heuristic: case-insensitive substring match between the user's stored
-entity names and the haystack text. Cheap and effective for the small
-per-user graphs we expect; can be upgraded to a proper NER pass later.
+Two complementary sources:
+
+1. **Name-matched** — case-insensitive substring match between the user's
+   stored entity names and a haystack made of (query + retrieved chunk text).
+   Highest priority: if the question or evidence literally mentions an entity,
+   we want it.
+
+2. **Document-scoped** — entities tagged with at least one `document_id` from
+   the retrieved chunks. Surfaces graph context tied to the evidence even
+   when the question doesn't say the entity name out loud.
+
+The union (name-matches first) is deduped, capped, and resolved to facts.
 """
 
 from __future__ import annotations
@@ -11,7 +19,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from app.graph.neo4j_client import get_entity_facts, list_user_entities
+from app.graph.neo4j_client import (
+    get_entity_facts,
+    list_entity_names_for_documents,
+    list_user_entities,
+)
 from app.rag.retrieval import RetrievedChunk
 
 
@@ -62,6 +74,30 @@ def _match_entities(haystack: str, candidates: list[dict], *, max_matches: int =
     return matched
 
 
+def _document_ids_from_chunks(chunks: list[RetrievedChunk]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for c in chunks:
+        if c.document_id and c.document_id not in seen:
+            seen.add(c.document_id)
+            ordered.append(c.document_id)
+    return ordered
+
+
+def _merge_unique(*sources: list[str]) -> list[str]:
+    """Concatenate string lists, dedupe case-insensitively, keep first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for source in sources:
+        for name in source:
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(name)
+    return out
+
+
 async def expand_with_graph(
     *,
     query: str,
@@ -70,23 +106,48 @@ async def expand_with_graph(
     max_entities: int = 8,
     max_relations_per_entity: int = 6,
 ) -> list[GraphFact]:
-    """Return GraphFact objects for entities mentioned in the query or
-    retrieved chunks. Empty list when the user has no graph yet."""
+    """Return GraphFact objects for entities tied to this turn.
+
+    Sources, in priority order:
+      1. Entity names that literally appear in the user's question or in the
+         retrieved chunk text.
+      2. Entity names attached to documents that the vector search returned
+         (graph context for the evidence).
+
+    Returns [] when the user has no graph yet OR neither source yields any
+    entity tied to the current turn.
+    """
     candidates = await list_user_entities(str(user_id), limit=500)
     if not candidates:
         return []
 
     haystack = _build_haystack(query, chunks)
-    matched_names = _match_entities(haystack, candidates, max_matches=max_entities)
-    if not matched_names:
+    name_matched = _match_entities(haystack, candidates, max_matches=max_entities)
+
+    doc_scoped: list[str] = []
+    doc_ids = _document_ids_from_chunks(chunks)
+    if doc_ids:
+        doc_scoped = await list_entity_names_for_documents(
+            str(user_id), doc_ids, limit=max_entities * 4
+        )
+
+    target_names = _merge_unique(name_matched, doc_scoped)[:max_entities]
+    if not target_names:
         return []
 
     raw = await get_entity_facts(
-        str(user_id), matched_names, limit_relations=max_relations_per_entity
+        str(user_id), target_names, limit_relations=max_relations_per_entity
     )
 
+    # Preserve our preferred order (name-matched first) instead of whatever
+    # the cypher returned.
+    raw_by_lower = {row["name"].lower(): row for row in raw}
+
     facts: list[GraphFact] = []
-    for row in raw:
+    for name in target_names:
+        row = raw_by_lower.get(name.lower())
+        if row is None:
+            continue
         rels = [
             GraphRelation(
                 relation=r.get("relation") or "",

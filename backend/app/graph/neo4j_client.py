@@ -194,6 +194,32 @@ async def get_graph_snapshot(
     return {"nodes": nodes, "links": links}
 
 
+async def list_entity_names_for_documents(
+    user_id: str, document_ids: list[str], *, limit: int = 200
+) -> list[str]:
+    """Names of entities tagged with at least one of the given document_ids.
+
+    Order: most-recently-seen first, capped by `limit`.
+    """
+    if not document_ids:
+        return []
+    driver = await get_driver()
+    async with driver.session() as session:
+        result = await session.run(
+            """
+            MATCH (e:Entity {user_id: $user_id})
+            WHERE any(d IN $doc_ids WHERE d IN coalesce(e.document_ids, []))
+            RETURN e.name AS name
+            ORDER BY e.last_seen_at DESC
+            LIMIT $limit
+            """,
+            user_id=user_id,
+            doc_ids=document_ids,
+            limit=limit,
+        )
+        return [row["name"] async for row in result]
+
+
 async def get_entity_facts(
     user_id: str, names: list[str], *, limit_relations: int = 25
 ) -> list[dict[str, Any]]:

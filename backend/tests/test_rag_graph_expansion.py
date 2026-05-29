@@ -1,4 +1,4 @@
-"""Unit tests for substring-based entity matching against retrieved chunks."""
+"""Unit tests for graph expansion (name-match + doc-scoped)."""
 
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -9,16 +9,18 @@ from app.rag.graph_expansion import (
     GraphFact,
     GraphRelation,
     _build_haystack,
+    _document_ids_from_chunks,
     _match_entities,
+    _merge_unique,
     expand_with_graph,
 )
 from app.rag.retrieval import RetrievedChunk
 
 
-def _chunk(text: str, score: float = 0.9) -> RetrievedChunk:
+def _chunk(text: str, *, document_id: str | None = None, score: float = 0.9) -> RetrievedChunk:
     return RetrievedChunk(
         chunk_id=str(uuid4()),
-        document_id=str(uuid4()),
+        document_id=document_id or str(uuid4()),
         chunk_index=0,
         score=score,
         text=text,
@@ -31,7 +33,6 @@ class TestBuildHaystack:
 
         assert "qdrant" in haystack
         assert "cosine distance" in haystack
-        # Original casing should not appear in the haystack
         assert "Qdrant" not in haystack
 
 
@@ -65,8 +66,6 @@ class TestMatchEntities:
         assert len(matched) == 5
 
     def test_longer_names_take_precedence(self):
-        """If 'Cosine' and 'Cosine Distance' both match, the longer (more
-        specific) name should appear in the matched list."""
         haystack = "qdrant uses cosine distance"
         candidates = [
             {"name": "Cosine", "type": "Concept"},
@@ -75,9 +74,32 @@ class TestMatchEntities:
 
         matched = _match_entities(haystack, candidates)
 
-        # Both still match (Cosine is a substring of "cosine distance" too),
-        # but the longer name must appear first in the result order.
         assert matched.index("Cosine Distance") < matched.index("Cosine")
+
+
+class TestDocumentIdsFromChunks:
+    def test_collects_unique_in_order(self):
+        chunks = [
+            _chunk("a", document_id="doc-1"),
+            _chunk("b", document_id="doc-2"),
+            _chunk("c", document_id="doc-1"),  # dup
+            _chunk("d", document_id="doc-3"),
+        ]
+
+        assert _document_ids_from_chunks(chunks) == ["doc-1", "doc-2", "doc-3"]
+
+    def test_empty_chunks_returns_empty(self):
+        assert _document_ids_from_chunks([]) == []
+
+
+class TestMergeUnique:
+    def test_preserves_first_seen_order_across_sources(self):
+        out = _merge_unique(["A", "B"], ["C", "A"], ["B", "D"])
+        assert out == ["A", "B", "C", "D"]
+
+    def test_dedupes_case_insensitively(self):
+        out = _merge_unique(["Qdrant"], ["QDRANT", "qdrant"])
+        assert out == ["Qdrant"]
 
 
 @pytest.mark.asyncio
@@ -94,10 +116,17 @@ async def test_expand_returns_empty_when_user_has_no_graph():
 
 
 @pytest.mark.asyncio
-async def test_expand_returns_empty_when_no_names_match():
-    with patch(
-        "app.rag.graph_expansion.list_user_entities",
-        new=AsyncMock(return_value=[{"name": "OnlyInGraph", "type": "Concept"}]),
+async def test_expand_returns_empty_when_no_names_match_and_no_doc_scope():
+    """No substring matches AND no doc-scoped entities for the cited docs."""
+    with (
+        patch(
+            "app.rag.graph_expansion.list_user_entities",
+            new=AsyncMock(return_value=[{"name": "OnlyInGraph", "type": "Concept"}]),
+        ),
+        patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         result = await expand_with_graph(
             query="nothing relevant",
@@ -106,6 +135,118 @@ async def test_expand_returns_empty_when_no_names_match():
         )
 
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_expand_uses_doc_scope_when_query_has_no_name_match():
+    """The killer case: question doesn't mention any entity by name, but the
+    retrieved chunk comes from a doc whose entities are in the graph."""
+    candidates = [{"name": "Qdrant", "type": "Technology"}]
+    fact_rows = [
+        {
+            "name": "Qdrant",
+            "type": "Technology",
+            "description": "vector DB",
+            "relations": [],
+        },
+    ]
+    with (
+        patch(
+            "app.rag.graph_expansion.list_user_entities",
+            new=AsyncMock(return_value=candidates),
+        ),
+        patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=["Qdrant"]),
+        ) as doc_call,
+        patch(
+            "app.rag.graph_expansion.get_entity_facts",
+            new=AsyncMock(return_value=fact_rows),
+        ) as facts_call,
+    ):
+        result = await expand_with_graph(
+            query="Summarize what you know",
+            chunks=[_chunk("the database stores embeddings", document_id="doc-1")],
+            user_id=uuid4(),
+        )
+
+    assert len(result) == 1
+    assert result[0].name == "Qdrant"
+    doc_call.assert_called_once()
+    # The cypher fact lookup must have been called with the union of names.
+    assert "Qdrant" in facts_call.call_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_expand_unions_name_match_and_doc_scope_with_name_priority():
+    candidates = [
+        {"name": "Qdrant", "type": "Technology"},
+        {"name": "Cosine Distance", "type": "Concept"},
+        {"name": "RapidOCR", "type": "Technology"},
+    ]
+    # `Qdrant` name-matches; doc-scope returns three (one overlapping, two new).
+    fact_rows = [
+        {"name": n, "type": "Technology", "description": "", "relations": []}
+        for n in ("Qdrant", "Cosine Distance", "RapidOCR")
+    ]
+
+    with (
+        patch(
+            "app.rag.graph_expansion.list_user_entities",
+            new=AsyncMock(return_value=candidates),
+        ),
+        patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=["Qdrant", "Cosine Distance", "RapidOCR"]),
+        ),
+        patch(
+            "app.rag.graph_expansion.get_entity_facts",
+            new=AsyncMock(return_value=fact_rows),
+        ),
+    ):
+        result = await expand_with_graph(
+            query="What does Qdrant do?",
+            chunks=[_chunk("vector DB", document_id="doc-1")],
+            user_id=uuid4(),
+        )
+
+    names = [f.name for f in result]
+    # Qdrant is name-matched → must appear first (priority).
+    assert names[0] == "Qdrant"
+    # No dupes.
+    assert len(names) == len(set(names))
+
+
+@pytest.mark.asyncio
+async def test_expand_caps_total_entities():
+    candidates = [{"name": f"E{i}", "type": "Concept"} for i in range(50)]
+    fact_rows = [
+        {"name": f"E{i}", "type": "Concept", "description": "", "relations": []} for i in range(50)
+    ]
+    with (
+        patch(
+            "app.rag.graph_expansion.list_user_entities",
+            new=AsyncMock(return_value=candidates),
+        ),
+        patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=[f"E{i}" for i in range(50)]),
+        ),
+        patch(
+            "app.rag.graph_expansion.get_entity_facts",
+            new=AsyncMock(return_value=fact_rows),
+        ) as facts_call,
+    ):
+        result = await expand_with_graph(
+            query="ignored",
+            chunks=[_chunk("ignored too", document_id="doc-1")],
+            user_id=uuid4(),
+            max_entities=4,
+        )
+
+    assert len(result) == 4
+    # The cypher lookup was only asked for the cap (not all 50)
+    assert len(facts_call.call_args.args[1]) == 4
 
 
 @pytest.mark.asyncio
@@ -137,6 +278,10 @@ async def test_expand_returns_facts_for_matched_entities():
             new=AsyncMock(return_value=candidates),
         ),
         patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
             "app.rag.graph_expansion.get_entity_facts",
             new=AsyncMock(return_value=fact_rows),
         ) as facts_call,
@@ -156,7 +301,6 @@ async def test_expand_returns_facts_for_matched_entities():
     assert rel.relation == "uses"
     assert rel.other == "Cosine Distance"
 
-    # And the cypher lookup was called with both matched names (longest-first)
     called_names = facts_call.call_args.args[1]
     assert "Cosine Distance" in called_names
     assert "Qdrant" in called_names
@@ -183,12 +327,18 @@ async def test_expand_drops_relations_with_missing_other_or_relation():
             new=AsyncMock(return_value=candidates),
         ),
         patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
             "app.rag.graph_expansion.get_entity_facts",
             new=AsyncMock(return_value=fact_rows),
         ),
     ):
         result = await expand_with_graph(
-            query="qdrant", chunks=[_chunk("qdrant uses cosine distance")], user_id=uuid4()
+            query="qdrant",
+            chunks=[_chunk("qdrant uses cosine distance")],
+            user_id=uuid4(),
         )
 
     assert len(result[0].relations) == 1
