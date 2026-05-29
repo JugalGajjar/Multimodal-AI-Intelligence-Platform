@@ -108,3 +108,104 @@ test.describe("Phase 2.5 — frontend chat UI", () => {
     ).toBeVisible();
   });
 });
+
+test.describe("Phase 4.3c — inline knowledge graph in chat panel", () => {
+  test("renders inline graph + 'used graph' badge + Explore-full-graph link", async ({
+    page,
+  }) => {
+    // Mock the chat endpoint with a graph-augmented response.
+    await page.route("**/api/v1/chat", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          answer:
+            "Qdrant is the vector database used by the platform [1].",
+          citations: [
+            {
+              chunk_id: "11111111-1111-1111-1111-111111111111",
+              document_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              chunk_index: 0,
+              score: 0.81,
+              text_preview: "Qdrant is the vector DB.",
+            },
+          ],
+          entities_used: [
+            {
+              name: "Qdrant",
+              type: "Technology",
+              description: "open-source vector database",
+              relations: [
+                {
+                  relation: "uses",
+                  direction: "out",
+                  other: "Cosine Distance",
+                  other_type: "Concept",
+                  other_description: "vector similarity metric",
+                },
+              ],
+            },
+            {
+              name: "Cosine Distance",
+              type: "Concept",
+              description: "vector similarity metric",
+              relations: [],
+            },
+          ],
+          model: "openai/gpt-oss-20b",
+          used_context: true,
+          used_graph: true,
+        }),
+      });
+    });
+
+    await registerAndSignIn(page);
+    await page.getByLabel(/question/i).fill("What does the platform use?");
+    await page.getByRole("button", { name: /^send$/i }).click();
+
+    // Answer renders
+    await expect(page.getByTestId("chat-answer")).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // The used-graph badge appears
+    await expect(page.getByText(/^used graph$/i)).toBeVisible();
+
+    // Inline graph block is shown
+    await expect(page.getByTestId("inline-graph")).toBeVisible();
+
+    // Explore-full-graph link points at /dashboard/graph
+    const link = page.getByTestId("inline-graph-explore-link");
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", "/dashboard/graph");
+
+    // The legend appears (force-graph canvas is hard to assert in Playwright,
+    // but the surrounding markup must render). Look for the type label.
+    await expect(page.getByText(/Technology/).first()).toBeVisible();
+  });
+
+  test("inline graph is hidden when used_graph=false", async ({ page }) => {
+    await page.route("**/api/v1/chat", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          answer: "No graph context.",
+          citations: [],
+          entities_used: [],
+          model: "openai/gpt-oss-20b",
+          used_context: false,
+          used_graph: false,
+        }),
+      });
+    });
+
+    await registerAndSignIn(page);
+    await page.getByLabel(/question/i).fill("hi");
+    await page.getByRole("button", { name: /^send$/i }).click();
+
+    await expect(page.getByTestId("chat-answer")).toBeVisible();
+    await expect(page.getByTestId("inline-graph")).toBeHidden();
+    await expect(page.getByText(/^used graph$/i)).toBeHidden();
+  });
+});

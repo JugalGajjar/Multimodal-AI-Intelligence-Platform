@@ -8,11 +8,28 @@ export type ChatCitation = {
   text_preview: string;
 };
 
+export type ChatGraphRelationEdge = {
+  relation: string;
+  direction: "in" | "out" | string;
+  other: string;
+  other_type?: string;
+  other_description?: string;
+};
+
+export type ChatEntityUsed = {
+  name: string;
+  type: string;
+  description: string;
+  relations: ChatGraphRelationEdge[];
+};
+
 export type ChatResponse = {
   answer: string;
   citations: ChatCitation[];
+  entities_used: ChatEntityUsed[];
   model: string;
   used_context: boolean;
+  used_graph: boolean;
 };
 
 export type ChatRequest = {

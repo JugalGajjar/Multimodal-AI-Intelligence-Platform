@@ -1,8 +1,10 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 
+import { KnowledgeGraph } from "@/components/graph/knowledge-graph";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +21,7 @@ import {
   type ChatCitation,
   type ChatResponse,
 } from "@/lib/chat-api";
+import { chatToGraphProps } from "@/lib/graph-from-chat";
 import { useAuthStore } from "@/store/auth";
 
 function errorMessage(err: unknown): string {
@@ -91,6 +94,8 @@ export function ChatPanel() {
 }
 
 function Answer({ response }: { response: ChatResponse }) {
+  const { data: graphData, highlighted, hasGraph } = chatToGraphProps(response);
+
   return (
     <div className="space-y-3" data-testid="chat-answer">
       <div className="flex items-center gap-2">
@@ -99,6 +104,11 @@ function Answer({ response }: { response: ChatResponse }) {
           <Badge variant="default">used context</Badge>
         ) : (
           <Badge variant="outline">no context</Badge>
+        )}
+        {response.used_graph && (
+          <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-700">
+            used graph
+          </Badge>
         )}
       </div>
 
@@ -116,6 +126,32 @@ function Answer({ response }: { response: ChatResponse }) {
               <CitationItem key={c.chunk_id} index={i + 1} citation={c} />
             ))}
           </ol>
+        </div>
+      )}
+
+      {hasGraph && (
+        <div className="space-y-2" data-testid="inline-graph">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              Knowledge graph
+            </p>
+            <Link
+              href="/dashboard/graph"
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              data-testid="inline-graph-explore-link"
+            >
+              Explore full graph →
+            </Link>
+          </div>
+          <KnowledgeGraph
+            nodes={graphData.nodes}
+            links={graphData.links}
+            height={300}
+            highlighted={highlighted}
+          />
+          <p className="text-xs text-muted-foreground">
+            Highlighted nodes are entities the answer mentions by name.
+          </p>
         </div>
       )}
     </div>

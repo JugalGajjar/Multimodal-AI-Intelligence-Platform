@@ -4,6 +4,21 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Stub the (canvas-heavy) graph component so this suite can focus on the
+// chat-panel logic. The real <KnowledgeGraph /> is exercised in its own tests.
+vi.mock("@/components/graph/knowledge-graph", () => ({
+  KnowledgeGraph: (props: {
+    nodes: { id: string }[];
+    highlighted?: ReadonlySet<string>;
+  }) => (
+    <div
+      data-testid="kg-stub"
+      data-node-count={props.nodes.length}
+      data-highlight-count={props.highlighted?.size ?? 0}
+    />
+  ),
+}));
+
 import { ChatPanel } from "./chat-panel";
 import { useAuthStore } from "@/store/auth";
 
@@ -195,5 +210,98 @@ describe("<ChatPanel />", () => {
     await userEvent.type(input, "   ");
     expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe("inline knowledge graph", () => {
+    const GRAPH_BODY = {
+      answer: "Qdrant powers retrieval and Cosine Distance is the metric.",
+      citations: [],
+      entities_used: [
+        {
+          name: "Qdrant",
+          type: "Technology",
+          description: "vector DB",
+          relations: [
+            {
+              relation: "uses",
+              direction: "out" as const,
+              other: "Cosine Distance",
+              other_type: "Concept",
+              other_description: "similarity metric",
+            },
+          ],
+        },
+        {
+          name: "Cosine Distance",
+          type: "Concept",
+          description: "similarity metric",
+          relations: [],
+        },
+      ],
+      model: "openai/gpt-oss-20b",
+      used_context: false,
+      used_graph: true,
+    };
+
+    it("renders the inline graph + 'used graph' badge when used_graph=true", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse(GRAPH_BODY)),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("inline-graph")).toBeInTheDocument(),
+      );
+
+      // Used-graph badge appears
+      expect(screen.getByText(/used graph/i)).toBeInTheDocument();
+
+      // Graph stub received 2 nodes (both primary entities)
+      const stub = screen.getByTestId("kg-stub");
+      expect(stub.getAttribute("data-node-count")).toBe("2");
+      // Both entity names appear in the answer ⇒ both highlighted
+      expect(stub.getAttribute("data-highlight-count")).toBe("2");
+    });
+
+    it("hides the inline graph when used_graph=false", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonResponse({
+            ...GRAPH_BODY,
+            used_graph: false,
+            entities_used: [],
+          }),
+        ),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("chat-answer")).toBeInTheDocument(),
+      );
+      expect(screen.queryByTestId("inline-graph")).not.toBeInTheDocument();
+      expect(screen.queryByText(/used graph/i)).not.toBeInTheDocument();
+    });
+
+    it("'Explore full graph' link points at /dashboard/graph", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse(GRAPH_BODY)),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      const link = await screen.findByTestId("inline-graph-explore-link");
+      expect(link).toHaveAttribute("href", "/dashboard/graph");
+    });
   });
 });
