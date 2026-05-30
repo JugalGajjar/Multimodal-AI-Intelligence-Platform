@@ -101,6 +101,39 @@ export async function uploadDocument(
   return (await response.json()) as DocumentItem;
 }
 
+export type ReindexGraphResponse = {
+  queued: boolean;
+  document_id: string;
+};
+
+export async function reindexDocumentGraph(
+  token: string,
+  id: string,
+): Promise<ReindexGraphResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/documents/${id}/reindex-graph`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    let body: unknown = text;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // raw text
+    }
+    throw new ApiError(
+      `Reindex failed: ${response.status} ${response.statusText}`,
+      response.status,
+      body,
+    );
+  }
+  return (await response.json()) as ReindexGraphResponse;
+}
+
 export async function deleteDocument(
   token: string,
   id: string,

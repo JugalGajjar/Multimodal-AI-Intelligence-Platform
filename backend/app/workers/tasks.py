@@ -185,6 +185,51 @@ async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
         log.warning("graph ingest failed (non-blocking): %s", exc)
 
 
+async def reindex_graph_for_document(ctx: dict[str, Any], document_id: str) -> str:
+    """Re-run entity extraction on already-stored chunks for a single document.
+
+    Use this after a transient extraction failure (Groq daily cap, etc.).
+    No re-OCR, no re-embedding — just reads chunk rows from Postgres, joins
+    them in order, and runs the same `_ingest_graph` path the upload pipeline
+    uses.
+    """
+    async with async_session_maker() as db:
+        doc = await db.get(Document, document_id)
+        if doc is None:
+            log.warning("reindex_graph: doc %s not found", document_id)
+            return "missing"
+
+        if str(doc.status) != DocumentStatus.PROCESSED.value:
+            log.info(
+                "reindex_graph: doc %s status=%s — skipping (expected 'processed')",
+                document_id,
+                doc.status,
+            )
+            return "skipped"
+
+        stmt = (
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == doc.id)
+            .order_by(DocumentChunk.chunk_index.asc())
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+
+    # Prefer the chunk join (it's already cleaned). Fall back to the document's
+    # stored text only if the chunk table is empty (older rows).
+    text = "\n\n".join(r.text for r in rows) if rows else (doc.extracted_text or "")
+
+    if not text.strip():
+        log.info("reindex_graph: doc %s has no text — nothing to extract", document_id)
+        return "no-text"
+
+    await _ingest_graph(
+        text=text,
+        user_id=str(doc.user_id),
+        document_id=str(doc.id),
+    )
+    return "reindexed"
+
+
 async def fetch_document(document_id: str) -> Document | None:
     """Test helper; not part of arq's surface."""
     async with async_session_maker() as db:

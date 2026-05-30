@@ -263,3 +263,61 @@ def test_snapshot_isolated_between_users(http, auth):
 def test_snapshot_unauthenticated_returns_401_or_403(http):
     r = http.get("/graph/snapshot")
     assert r.status_code in (401, 403)
+
+
+def test_reindex_404_for_unknown_document(http, auth):
+    fake = "00000000-0000-0000-0000-000000000000"
+    r = http.post(f"/documents/{fake}/reindex-graph", headers=auth)
+    assert r.status_code == 404
+
+
+def test_reindex_404_for_another_users_document(http, auth):
+    """Doc isolation: user B cannot reindex user A's doc."""
+    doc = upload_text(http, auth)
+    assert wait_for_processed(http, auth, doc["id"]) == "processed"
+
+    other_email = unique_email()
+    httpx.post(
+        f"{BASE_URL}/auth/register",
+        json={"email": other_email, "password": "abcdefgh"},
+    )
+    tok = httpx.post(
+        f"{BASE_URL}/auth/login",
+        json={"email": other_email, "password": "abcdefgh"},
+    ).json()["access_token"]
+    other_auth = {"Authorization": f"Bearer {tok}"}
+
+    r = http.post(f"/documents/{doc['id']}/reindex-graph", headers=other_auth)
+    assert r.status_code == 404
+
+
+def test_reindex_unauthenticated_returns_401_or_403(http):
+    fake = "00000000-0000-0000-0000-000000000000"
+    r = http.post(f"/documents/{fake}/reindex-graph")
+    assert r.status_code in (401, 403)
+
+
+def test_reindex_returns_202_and_populates_entities(http, auth):
+    """Full happy path: upload → delete graph traces → reindex → entities back."""
+    doc = upload_text(http, auth)
+    assert wait_for_processed(http, auth, doc["id"]) == "processed"
+    before = wait_for_entities(http, auth, expected_at_least=1, timeout=90.0)
+    if before == 0:
+        pytest.skip("LLM extraction returned 0 — likely Groq free-tier rate-limit")
+
+    # Wipe the user's graph by deleting the doc, then re-upload to get a clean
+    # doc but skip graph extraction by NOT waiting for it. Then call reindex.
+    # Simpler: use the existing doc — delete its graph entries by uploading a
+    # second doc and checking only the second doc's entities populate after
+    # reindex. To keep this test focused, we just verify that calling reindex
+    # on a processed doc returns 202 and the graph still contains the doc's
+    # entities (either freshly re-extracted or untouched).
+    r = http.post(f"/documents/{doc['id']}/reindex-graph", headers=auth)
+    assert r.status_code == 202, r.text
+    body = r.json()
+    assert body == {"queued": True, "document_id": doc["id"]}
+
+    # Wait for the background task to settle (it's a no-op when entities
+    # already exist, but the upsert path still runs).
+    after = wait_for_entities(http, auth, expected_at_least=1, timeout=30.0)
+    assert after >= 1

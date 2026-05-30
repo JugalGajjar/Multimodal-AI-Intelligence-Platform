@@ -75,6 +75,24 @@ async def _enqueue_ocr(document_id) -> None:
         log.warning("failed to enqueue OCR for %s: %s", document_id, exc)
 
 
+async def enqueue_graph_reindex(document_id) -> bool:
+    """Enqueue a graph re-extraction over the document's stored chunks.
+
+    Returns True if successfully queued; False on a transient queue outage
+    (worker will not have picked the job up).
+    """
+    try:
+        pool = await get_arq_pool()
+        try:
+            await pool.enqueue_job("reindex_graph_for_document", str(document_id))
+        finally:
+            await pool.close()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("failed to enqueue graph reindex for %s: %s", document_id, exc)
+        return False
+
+
 async def delete_stored_object(storage_key: str) -> None:
     """Best-effort MinIO delete; swallow not-found / bucket-missing."""
     with contextlib.suppress(S3Error):

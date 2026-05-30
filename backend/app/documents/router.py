@@ -21,6 +21,7 @@ from app.documents.service import (
     delete_graph_traces,
     delete_stored_object,
     delete_vector_points,
+    enqueue_graph_reindex,
     store_uploaded_file,
 )
 from app.documents.validation import (
@@ -132,6 +133,44 @@ async def get_document_text(
     if doc is None or doc.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return DocumentTextResponse(id=doc.id, status=doc.status, extracted_text=doc.extracted_text)
+
+
+@router.post(
+    "/{document_id}/reindex-graph",
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        404: {"description": "Not found"},
+        409: {"description": "Document not yet processed"},
+        503: {"description": "Background queue unavailable"},
+    },
+)
+async def reindex_document_graph(
+    document_id: UUID, current_user: CurrentUserDep, db: DbDep
+) -> dict:
+    """Re-run entity extraction over this document's stored chunks.
+
+    Use after a transient extraction failure (Groq daily cap, etc.) to populate
+    the knowledge graph without re-uploading. No re-OCR or re-embedding.
+    """
+    doc = await db.get(Document, document_id)
+    if doc is None or doc.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    # `doc.status` is a String column typed as a StrEnum at the ORM layer,
+    # but SQLAlchemy may return it as a plain str. Compare via str() to be safe.
+    if str(doc.status) != "processed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Document status is '{doc.status}'; only processed documents can be reindexed",
+        )
+
+    queued = await enqueue_graph_reindex(doc.id)
+    if not queued:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Background queue unavailable; please retry shortly",
+        )
+    return {"queued": True, "document_id": str(doc.id)}
 
 
 @router.delete(

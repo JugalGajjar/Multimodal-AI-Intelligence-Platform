@@ -18,6 +18,7 @@ import {
   getDocumentText,
   listDocumentChunks,
   listDocuments,
+  reindexDocumentGraph,
   type DocumentItem,
   type DocumentListResponse,
   type DocumentStatus,
@@ -45,6 +46,11 @@ export function DocumentsList() {
   const token = useAuthStore((s) => s.token);
   const queryClient = useQueryClient();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [reindexStatus, setReindexStatus] = useState<{
+    id: string;
+    kind: "ok" | "err";
+    message: string;
+  } | null>(null);
 
   const { data, isLoading, isError } = useQuery<DocumentListResponse>({
     queryKey: ["documents"],
@@ -58,6 +64,21 @@ export function DocumentsList() {
     mutationFn: (id: string) => deleteDocument(token!, id),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["documents"] }),
+  });
+
+  const reindexMutation = useMutation({
+    mutationFn: (id: string) => reindexDocumentGraph(token!, id),
+    onSuccess: (_, id) => {
+      setReindexStatus({
+        id,
+        kind: "ok",
+        message: "Re-indexing graph… new entities will appear within ~10s.",
+      });
+    },
+    onError: (err: unknown, id) => {
+      const msg = err instanceof Error ? err.message : "Re-index failed.";
+      setReindexStatus({ id, kind: "err", message: msg });
+    },
   });
 
   return (
@@ -115,12 +136,40 @@ export function DocumentsList() {
                   <Button
                     variant="outline"
                     size="sm"
+                    disabled={
+                      doc.status !== "processed" ||
+                      (reindexMutation.isPending &&
+                        reindexMutation.variables === doc.id)
+                    }
+                    onClick={() => {
+                      setReindexStatus(null);
+                      reindexMutation.mutate(doc.id);
+                    }}
+                    title="Re-run entity extraction over this document's chunks"
+                    data-testid="reindex-graph-button"
+                  >
+                    {reindexMutation.isPending &&
+                    reindexMutation.variables === doc.id
+                      ? "Re-indexing…"
+                      : "Re-index graph"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     disabled={deleteMutation.isPending}
                     onClick={() => deleteMutation.mutate(doc.id)}
                   >
                     Delete
                   </Button>
                 </div>
+                {reindexStatus?.id === doc.id && (
+                  <p
+                    className={`mt-2 text-xs ${reindexStatus.kind === "ok" ? "text-emerald-600" : "text-destructive"}`}
+                    data-testid="reindex-status"
+                  >
+                    {reindexStatus.message}
+                  </p>
+                )}
                 {openId === doc.id && <DocumentText id={doc.id} />}
               </li>
             ))}

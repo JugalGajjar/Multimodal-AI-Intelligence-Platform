@@ -257,6 +257,86 @@ describe("<DocumentsList />", () => {
     });
   });
 
+  it("'Re-index graph' button is disabled until a doc is processed", async () => {
+    const r = createRoutedFetch();
+    r.add(/\/documents$/, () =>
+      jsonResponse({
+        items: [makeDoc({ id: "d-r", status: "processing" })],
+        total: 1,
+      }),
+    );
+    vi.stubGlobal("fetch", vi.fn(r.impl));
+
+    renderWithQuery(<DocumentsList />);
+
+    const btn = await screen.findByTestId("reindex-graph-button");
+    expect(btn).toBeDisabled();
+  });
+
+  it("clicking 'Re-index graph' POSTs the reindex endpoint and shows success", async () => {
+    const r = createRoutedFetch();
+    r.add(/\/documents$/, () =>
+      jsonResponse({
+        items: [makeDoc({ id: "d-r", status: "processed" })],
+        total: 1,
+      }),
+    );
+    r.add(/\/chunks$/, () =>
+      jsonResponse({ document_id: "d-r", total: 1, items: [] }),
+    );
+    r.add(/\/reindex-graph$/, () =>
+      jsonResponse({ queued: true, document_id: "d-r" }, 202),
+    );
+    const spy = vi.fn(r.impl);
+    vi.stubGlobal("fetch", spy);
+
+    renderWithQuery(<DocumentsList />);
+
+    await userEvent.click(await screen.findByTestId("reindex-graph-button"));
+
+    await waitFor(() => {
+      const call = spy.mock.calls.find(
+        (c) =>
+          (c[1] as RequestInit | undefined)?.method === "POST" &&
+          /\/reindex-graph$/.test(String(c[0])),
+      );
+      expect(call).toBeDefined();
+    });
+
+    expect(await screen.findByTestId("reindex-status")).toHaveTextContent(
+      /re-indexing/i,
+    );
+  });
+
+  it("clicking 'Re-index graph' surfaces an error on non-2xx", async () => {
+    const r = createRoutedFetch();
+    r.add(/\/documents$/, () =>
+      jsonResponse({
+        items: [makeDoc({ id: "d-r-err", status: "processed" })],
+        total: 1,
+      }),
+    );
+    r.add(/\/chunks$/, () =>
+      jsonResponse({ document_id: "d-r-err", total: 1, items: [] }),
+    );
+    r.add(/\/reindex-graph$/, () =>
+      new Response(JSON.stringify({ detail: "queue down" }), {
+        status: 503,
+        statusText: "Service Unavailable",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", vi.fn(r.impl));
+
+    renderWithQuery(<DocumentsList />);
+
+    await userEvent.click(await screen.findByTestId("reindex-graph-button"));
+
+    expect(await screen.findByTestId("reindex-status")).toHaveTextContent(
+      /reindex failed/i,
+    );
+  });
+
   it("renders an error message when the list query fails", async () => {
     const r = createRoutedFetch();
     r.add(/\/documents$/, () =>
