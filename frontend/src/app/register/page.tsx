@@ -1,9 +1,10 @@
 import { RegisterForm } from "@/components/auth/register-form";
+import { AuthShell } from "@/components/layout/auth-shell";
 
 export default function RegisterPage() {
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-16">
+    <AuthShell>
       <RegisterForm />
-    </main>
+    </AuthShell>
   );
 }

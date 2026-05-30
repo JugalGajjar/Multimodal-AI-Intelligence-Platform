@@ -1,29 +1,113 @@
+import { ArrowRight, FileText, Image as ImageIcon, Mic, Network } from "lucide-react";
 import Link from "next/link";
 
 import { HealthStatus } from "@/components/health-status";
+import { BrandMark } from "@/components/layout/brand-mark";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
+
+const FEATURES = [
+  {
+    Icon: FileText,
+    title: "Multimodal ingest",
+    body: "PDFs, images, audio, and text — extracted, chunked, and embedded into a shared vector space.",
+  },
+  {
+    Icon: ImageIcon,
+    title: "Vision + OCR",
+    body: "RapidOCR + a vision-language model give every image a searchable, summarized representation.",
+  },
+  {
+    Icon: Mic,
+    title: "Audio transcription",
+    body: "Groq Whisper turns recordings into citable, retrievable text — instantly.",
+  },
+  {
+    Icon: Network,
+    title: "Knowledge graph",
+    body: "Entities and relationships extracted from your docs, visualized and used to ground answers.",
+  },
+];
 
 export default function Home() {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-16">
-      <div className="flex max-w-2xl flex-col items-center gap-3 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          Multimodal AI Intelligence Platform
-        </h1>
-        <p className="text-muted-foreground">
-          Multimodal RAG over text, images, PDFs, and audio — with knowledge
-          graphs and agentic reasoning.
-        </p>
-      </div>
-      <div className="flex gap-3">
-        <Link href="/register" className={buttonVariants()}>
-          Get started
-        </Link>
-        <Link href="/login" className={buttonVariants({ variant: "outline" })}>
-          Sign in
-        </Link>
-      </div>
-      <HealthStatus />
-    </main>
+    <div className="flex min-h-svh flex-col">
+      <header className="flex items-center justify-between px-6 py-5 sm:px-10">
+        <BrandMark size="md" />
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <Link
+            href="/login"
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            Sign in
+          </Link>
+        </div>
+      </header>
+
+      <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 sm:py-20">
+        <section className="flex max-w-3xl flex-col items-center gap-6 text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm">
+            <span className="size-1.5 rounded-full bg-gradient-brand" />
+            Graduate-quality multimodal RAG, end to end
+          </span>
+
+          <h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-6xl">
+            Chat with everything
+            <br />
+            <span className="text-gradient-brand">you’ve ever uploaded.</span>
+          </h1>
+          <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
+            Multimodal RAG over text, images, PDFs, and audio — with a live
+            knowledge graph and grounded, cited answers.
+          </p>
+
+          <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row">
+            <Link
+              href="/register"
+              className={
+                buttonVariants({ size: "lg" }) +
+                " bg-gradient-brand text-brand-foreground glow-brand transition-transform hover:-translate-y-0.5"
+              }
+            >
+              Get started
+              <ArrowRight className="ml-1.5 size-4" aria-hidden="true" />
+            </Link>
+            <Link
+              href="/login"
+              className={buttonVariants({ variant: "outline", size: "lg" })}
+            >
+              I already have an account
+            </Link>
+          </div>
+        </section>
+
+        <section className="mt-16 grid w-full max-w-5xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {FEATURES.map(({ Icon, title, body }) => (
+            <article
+              key={title}
+              className="glass group rounded-xl p-5 transition-transform hover:-translate-y-1"
+            >
+              <span
+                aria-hidden="true"
+                className="mb-3 inline-flex size-9 items-center justify-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
+              >
+                <Icon className="size-4" />
+              </span>
+              <h3 className="text-sm font-semibold">{title}</h3>
+              <p className="mt-1 text-xs text-muted-foreground">{body}</p>
+            </article>
+          ))}
+        </section>
+
+        <section className="mt-14">
+          <HealthStatus />
+        </section>
+      </main>
+
+      <footer className="border-t border-border/60 px-6 py-5 text-center text-xs text-muted-foreground sm:px-10">
+        Built with FastAPI, Next.js, Qdrant, and Neo4j.
+      </footer>
+    </div>
   );
 }

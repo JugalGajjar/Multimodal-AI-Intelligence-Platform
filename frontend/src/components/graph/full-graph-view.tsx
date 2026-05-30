@@ -1,12 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
+import { Network, Search, Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { KnowledgeGraph } from "@/components/graph/knowledge-graph";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -100,8 +100,6 @@ export function FullGraphView() {
     [selectedNode, data],
   );
 
-  // Highlight the nodes matching the current search (the additional 1-hop
-  // neighbours we pulled in for context don't get highlighted).
   const searchHighlighted = useMemo(() => {
     if (!data || !search.trim()) return new Set<string>();
     const needle = search.trim().toLowerCase();
@@ -113,30 +111,35 @@ export function FullGraphView() {
   }, [data, search]);
 
   return (
-    <main className="flex flex-1 flex-col gap-4 px-6 py-8" data-testid="full-graph-view">
+    <div className="flex flex-col gap-6" data-testid="full-graph-view">
       <header className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold">Knowledge graph</h1>
-            <p className="text-sm text-muted-foreground">
-              Everything the platform extracted from your uploads.
-            </p>
-          </div>
-          <Link
-            href="/dashboard"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-            data-testid="back-to-dashboard"
-          >
-            ← Dashboard
-          </Link>
-        </div>
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Knowledge
+        </p>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          <span className="text-gradient-brand">Knowledge graph</span>
+        </h1>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Every entity and relationship the platform extracted from your
+          uploads — searchable, navigable, and tied back to source documents.
+        </p>
 
         {data && (
-          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <Badge variant="secondary" data-testid="kg-node-count">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Badge
+              variant="secondary"
+              data-testid="kg-node-count"
+              className="gap-1.5"
+            >
+              <Network className="size-3" aria-hidden="true" />
               {data.node_count} entities
             </Badge>
-            <Badge variant="secondary" data-testid="kg-link-count">
+            <Badge
+              variant="secondary"
+              data-testid="kg-link-count"
+              className="gap-1.5"
+            >
+              <Sparkles className="size-3" aria-hidden="true" />
               {data.link_count} relationships
             </Badge>
             {search && (
@@ -148,48 +151,60 @@ export function FullGraphView() {
         )}
       </header>
 
-      <div className="grid w-full gap-4 lg:grid-cols-[1fr_320px]">
-        <div className="flex flex-col gap-3">
-          <div className="space-y-1">
-            <Label htmlFor="kg-search">Filter by name</Label>
-            <Input
-              id="kg-search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search entities by name…"
-              data-testid="kg-search"
-            />
-          </div>
-
-          {query.isLoading && (
-            <p className="text-sm text-muted-foreground" data-testid="kg-loading">
-              Loading graph…
-            </p>
-          )}
-          {query.isError && (
-            <p className="text-sm text-destructive" data-testid="kg-error">
-              Failed to load graph.
-            </p>
-          )}
-          {data && data.nodes.length === 0 && (
-            <div
-              className="flex h-64 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground"
-              data-testid="kg-empty-full"
-            >
-              No entities yet — upload a document and the platform will
-              extract them automatically.
+      <div className="grid w-full gap-5 lg:grid-cols-[1fr_340px]">
+        <Card className="glass overflow-hidden">
+          <CardHeader className="pb-3">
+            <div className="space-y-2">
+              <Label htmlFor="kg-search" className="text-xs uppercase text-muted-foreground">
+                Filter by name
+              </Label>
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <Input
+                  id="kg-search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search entities by name…"
+                  data-testid="kg-search"
+                  className="pl-9"
+                />
+              </div>
             </div>
-          )}
-          {data && data.nodes.length > 0 && (
-            <KnowledgeGraph
-              nodes={filtered.nodes}
-              links={filtered.links}
-              height={560}
-              highlighted={searchHighlighted}
-              onNodeClick={(node) => setSelectedId(node.id)}
-            />
-          )}
-        </div>
+          </CardHeader>
+          <CardContent>
+            {query.isLoading && (
+              <p
+                className="py-10 text-center text-sm text-muted-foreground"
+                data-testid="kg-loading"
+              >
+                Loading graph…
+              </p>
+            )}
+            {query.isError && (
+              <p
+                className="py-10 text-center text-sm text-destructive"
+                data-testid="kg-error"
+              >
+                Failed to load graph.
+              </p>
+            )}
+            {data && data.nodes.length === 0 && (
+              <EmptyGraphState />
+            )}
+            {data && data.nodes.length > 0 && (
+              <KnowledgeGraph
+                nodes={filtered.nodes}
+                links={filtered.links}
+                height={560}
+                highlighted={searchHighlighted}
+                onNodeClick={(node) => setSelectedId(node.id)}
+              />
+            )}
+          </CardContent>
+        </Card>
 
         <aside data-testid="kg-side-panel">
           {selectedNode ? (
@@ -200,7 +215,7 @@ export function FullGraphView() {
               onClose={() => setSelectedId(null)}
             />
           ) : (
-            <Card className="h-full">
+            <Card className="glass h-full">
               <CardHeader>
                 <CardTitle className="text-base">Entity details</CardTitle>
                 <CardDescription>
@@ -211,7 +226,29 @@ export function FullGraphView() {
           )}
         </aside>
       </div>
-    </main>
+    </div>
+  );
+}
+
+function EmptyGraphState() {
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-3 py-16 text-center"
+      data-testid="kg-empty-full"
+    >
+      <span
+        aria-hidden="true"
+        className="grid size-14 place-items-center rounded-2xl bg-gradient-brand text-brand-foreground opacity-90 glow-brand"
+      >
+        <Network className="size-6" />
+      </span>
+      <p className="max-w-sm text-sm text-muted-foreground">
+        No entities yet — upload a document and the platform will extract them
+        automatically. You can also click{" "}
+        <span className="font-medium text-foreground">Re-index graph</span> on
+        a processed document to retry extraction.
+      </p>
+    </div>
   );
 }
 
@@ -227,7 +264,7 @@ function SelectedNodePanel({
   onClose: () => void;
 }) {
   return (
-    <Card data-testid="kg-selected">
+    <Card className="glass" data-testid="kg-selected">
       <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
         <div className="space-y-1">
           <CardTitle className="text-base break-all">{node.name}</CardTitle>
@@ -247,58 +284,32 @@ function SelectedNodePanel({
           data-testid="kg-close-details"
           aria-label="Clear selection"
         >
-          ×
+          <X className="size-4" aria-hidden="true" />
         </Button>
       </CardHeader>
-      <CardContent className="space-y-3 text-xs">
+      <CardContent className="space-y-4 text-xs">
         {node.description && (
-          <p className="text-foreground">{node.description}</p>
+          <p className="text-foreground/90 leading-relaxed">{node.description}</p>
         )}
 
         {outgoing.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-muted-foreground uppercase">Outgoing</p>
-            <ul className="space-y-1">
-              {outgoing.map((l) => (
-                <li
-                  key={`${l.source}|${l.relation}|${l.target}`}
-                  className="rounded-md border bg-muted/30 px-2 py-1"
-                >
-                  <span className="font-mono">{l.relation}</span>{" "}
-                  <span className="text-muted-foreground">→</span>{" "}
-                  <span>{l.target}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <RelationsBlock label="Outgoing" links={outgoing} side="from" />
         )}
 
         {incoming.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-muted-foreground uppercase">Incoming</p>
-            <ul className="space-y-1">
-              {incoming.map((l) => (
-                <li
-                  key={`${l.source}|${l.relation}|${l.target}`}
-                  className="rounded-md border bg-muted/30 px-2 py-1"
-                >
-                  <span>{l.source}</span>{" "}
-                  <span className="text-muted-foreground">→</span>{" "}
-                  <span className="font-mono">{l.relation}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <RelationsBlock label="Incoming" links={incoming} side="to" />
         )}
 
         {node.document_ids && node.document_ids.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-muted-foreground uppercase">From documents</p>
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              From documents
+            </p>
             <ul className="space-y-1 font-mono">
               {node.document_ids.map((id) => (
                 <li
                   key={id}
-                  className="truncate rounded-md border bg-muted/30 px-2 py-1"
+                  className="truncate rounded-md border border-border/60 bg-muted/40 px-2 py-1"
                   title={id}
                 >
                   {id.slice(0, 8)}…
@@ -315,5 +326,49 @@ function SelectedNodePanel({
           )}
       </CardContent>
     </Card>
+  );
+}
+
+function RelationsBlock({
+  label,
+  links,
+  side,
+}: {
+  label: string;
+  links: GraphLinkData[];
+  side: "from" | "to";
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <ul className="space-y-1">
+        {links.map((l) => (
+          <li
+            key={`${l.source}|${l.relation}|${l.target}`}
+            className="rounded-md border border-border/60 bg-muted/40 px-2 py-1"
+          >
+            {side === "from" ? (
+              <>
+                <span className="font-mono text-[color:var(--brand)]">
+                  {l.relation}
+                </span>{" "}
+                <span className="text-muted-foreground">→</span>{" "}
+                <span>{l.target}</span>
+              </>
+            ) : (
+              <>
+                <span>{l.source}</span>{" "}
+                <span className="text-muted-foreground">→</span>{" "}
+                <span className="font-mono text-[color:var(--brand)]">
+                  {l.relation}
+                </span>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

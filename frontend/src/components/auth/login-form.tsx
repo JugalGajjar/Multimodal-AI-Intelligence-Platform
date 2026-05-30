@@ -47,10 +47,13 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>Sign in</CardTitle>
-        <CardDescription>Welcome back to MMAP.</CardDescription>
+    <Card className="glass w-full max-w-md">
+      <CardHeader className="space-y-1.5">
+        <CardTitle className="text-2xl">Welcome back</CardTitle>
+        <CardDescription>
+          Sign in to your <span className="text-gradient-brand font-medium">MMAP</span>{" "}
+          workspace.
+        </CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-4">
@@ -63,6 +66,7 @@ export function LoginForm() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
             />
           </div>
           <div className="space-y-2">
@@ -74,6 +78,7 @@ export function LoginForm() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
             />
           </div>
           {error && (
@@ -82,11 +87,18 @@ export function LoginForm() {
             </p>
           )}
         </CardContent>
-        <CardFooter className="flex justify-between pt-6">
-          <a href="/register" className="text-sm text-muted-foreground underline">
+        <CardFooter className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <a
+            href="/register"
+            className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
             Create an account
           </a>
-          <Button type="submit" disabled={submitting}>
+          <Button
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-gradient-brand text-brand-foreground glow-brand sm:w-auto"
+          >
             {submitting ? "Signing in…" : "Sign in"}
           </Button>
         </CardFooter>

@@ -61,10 +61,12 @@ export function RegisterForm() {
   }
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>Create your account</CardTitle>
-        <CardDescription>Get started with MMAP.</CardDescription>
+    <Card className="glass w-full max-w-md">
+      <CardHeader className="space-y-1.5">
+        <CardTitle className="text-2xl">Create your account</CardTitle>
+        <CardDescription>
+          Get started with <span className="text-gradient-brand font-medium">MMAP</span>.
+        </CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-4">
@@ -109,11 +111,18 @@ export function RegisterForm() {
             </p>
           )}
         </CardContent>
-        <CardFooter className="flex justify-between pt-6">
-          <a href="/login" className="text-sm text-muted-foreground underline">
+        <CardFooter className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <a
+            href="/login"
+            className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
             Already have an account?
           </a>
-          <Button type="submit" disabled={submitting}>
+          <Button
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-gradient-brand text-brand-foreground glow-brand sm:w-auto"
+          >
             {submitting ? "Creating…" : "Create account"}
           </Button>
         </CardFooter>

@@ -1,6 +1,14 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
+import {
+  ArrowUpRight,
+  Loader2,
+  MessageSquareText,
+  Network,
+  SendHorizontal,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -54,35 +62,64 @@ export function ChatPanel() {
   }
 
   return (
-    <Card className="w-full max-w-2xl">
+    <Card className="glass w-full">
       <CardHeader>
-        <CardTitle>Ask your documents</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageSquareText
+            className="size-4 text-[color:var(--brand)]"
+            aria-hidden="true"
+          />
+          Ask your documents
+        </CardTitle>
         <CardDescription>
-          Retrieval-augmented chat over your uploaded text and PDFs.
+          Retrieval-augmented chat over your uploaded text, PDFs, images, and
+          audio. Answers are grounded and cited.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <form onSubmit={onSubmit} className="space-y-2">
-          <Label htmlFor="chat-query">Question</Label>
-          <textarea
-            id="chat-query"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="What does the document say about…?"
-            rows={3}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            required
-          />
-          <Button
-            type="submit"
-            disabled={mutation.isPending || !query.trim()}
-          >
-            {mutation.isPending ? "Thinking…" : "Send"}
-          </Button>
+          <Label htmlFor="chat-query" className="text-xs uppercase text-muted-foreground">
+            Question
+          </Label>
+          <div className="relative">
+            <textarea
+              id="chat-query"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="What does the document say about…?"
+              rows={3}
+              className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3 pr-32 text-sm shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30"
+              required
+            />
+            <Button
+              type="submit"
+              disabled={mutation.isPending || !query.trim()}
+              className="absolute bottom-2 right-2 bg-gradient-brand text-brand-foreground glow-brand"
+              size="sm"
+            >
+              {mutation.isPending ? (
+                <>
+                  <Loader2
+                    className="size-3.5 animate-spin"
+                    aria-hidden="true"
+                  />
+                  Thinking…
+                </>
+              ) : (
+                <>
+                  <SendHorizontal className="size-3.5" aria-hidden="true" />
+                  Send
+                </>
+              )}
+            </Button>
+          </div>
         </form>
 
         {mutation.isError && (
-          <p role="alert" className="text-sm text-destructive">
+          <p
+            role="alert"
+            className="rounded-lg border border-destructive/30 bg-destructive/10 p-2.5 text-sm text-destructive"
+          >
             {errorMessage(mutation.error)}
           </p>
         )}
@@ -97,28 +134,34 @@ function Answer({ response }: { response: ChatResponse }) {
   const { data: graphData, highlighted, hasGraph } = chatToGraphProps(response);
 
   return (
-    <div className="space-y-3" data-testid="chat-answer">
-      <div className="flex items-center gap-2">
-        <Badge variant="secondary">{response.model}</Badge>
+    <div className="space-y-4" data-testid="chat-answer">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge variant="outline" className="font-mono text-[10px]">
+          {response.model}
+        </Badge>
         {response.used_context ? (
-          <Badge variant="default">used context</Badge>
+          <Badge className="gap-1 bg-gradient-brand text-brand-foreground">
+            <Sparkles className="size-3" aria-hidden="true" />
+            used context
+          </Badge>
         ) : (
           <Badge variant="outline">no context</Badge>
         )}
         {response.used_graph && (
-          <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-700">
+          <Badge className="gap-1 bg-emerald-500/90 text-white hover:bg-emerald-500 dark:bg-emerald-500/80">
+            <Network className="size-3" aria-hidden="true" />
             used graph
           </Badge>
         )}
       </div>
 
-      <div className="rounded-md border bg-muted/30 p-3 text-sm">
+      <div className="rounded-xl border border-border/60 bg-background/50 p-4 text-sm leading-relaxed">
         <p className="whitespace-pre-wrap">{response.answer}</p>
       </div>
 
       {response.citations.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase text-muted-foreground">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Citations
           </p>
           <ol className="space-y-2">
@@ -132,23 +175,26 @@ function Answer({ response }: { response: ChatResponse }) {
       {hasGraph && (
         <div className="space-y-2" data-testid="inline-graph">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium uppercase text-muted-foreground">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               Knowledge graph
             </p>
             <Link
               href="/dashboard/graph"
-              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-[color:var(--brand)]"
               data-testid="inline-graph-explore-link"
             >
-              Explore full graph →
+              Explore full graph
+              <ArrowUpRight className="size-3" aria-hidden="true" />
             </Link>
           </div>
-          <KnowledgeGraph
-            nodes={graphData.nodes}
-            links={graphData.links}
-            height={300}
-            highlighted={highlighted}
-          />
+          <div className="overflow-hidden rounded-xl border border-border/60 bg-background/30">
+            <KnowledgeGraph
+              nodes={graphData.nodes}
+              links={graphData.links}
+              height={300}
+              highlighted={highlighted}
+            />
+          </div>
           <p className="text-xs text-muted-foreground">
             Highlighted nodes are entities the answer mentions by name.
           </p>
@@ -167,19 +213,19 @@ function CitationItem({
 }) {
   return (
     <li
-      className="rounded-md border bg-background p-2 text-xs"
+      className="rounded-lg border border-border/60 bg-background/50 p-2.5 text-xs"
       data-testid="citation-item"
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="font-mono text-muted-foreground">
-          [{index}] doc {citation.document_id.slice(0, 8)}… · chunk{" "}
-          {citation.chunk_index}
+          <span className="text-[color:var(--brand)]">[{index}]</span> doc{" "}
+          {citation.document_id.slice(0, 8)}… · chunk {citation.chunk_index}
         </span>
         <span className="text-muted-foreground">
           score {citation.score.toFixed(3)}
         </span>
       </div>
-      <p className="text-foreground">{citation.text_preview}</p>
+      <p className="text-foreground/90">{citation.text_preview}</p>
     </li>
   );
 }
