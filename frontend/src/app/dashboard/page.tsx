@@ -21,8 +21,8 @@ function DashboardInner() {
   const user = useAuthStore((s) => s.user);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <header className="flex flex-col gap-1">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-10">
+      <header className="flex flex-col gap-2">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Workspace
         </p>
@@ -37,7 +37,7 @@ function DashboardInner() {
             </>
           ) : null}
         </h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
           Upload anything readable — PDFs, images, audio, text — then chat over
           it with citations and a live knowledge graph.
         </p>

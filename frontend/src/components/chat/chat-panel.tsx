@@ -62,8 +62,8 @@ export function ChatPanel() {
   }
 
   return (
-    <Card className="glass w-full">
-      <CardHeader>
+    <Card className="glass w-full py-6">
+      <CardHeader className="px-6 pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageSquareText
             className="size-4 text-[color:var(--brand)]"
@@ -71,14 +71,17 @@ export function ChatPanel() {
           />
           Ask your documents
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="mt-1">
           Retrieval-augmented chat over your uploaded text, PDFs, images, and
           audio. Answers are grounded and cited.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <form onSubmit={onSubmit} className="space-y-2">
-          <Label htmlFor="chat-query" className="text-xs uppercase text-muted-foreground">
+      <CardContent className="space-y-5 px-6 pt-2">
+        <form onSubmit={onSubmit} className="space-y-2.5">
+          <Label
+            htmlFor="chat-query"
+            className="text-xs uppercase text-muted-foreground"
+          >
             Question
           </Label>
           <div className="relative">
@@ -88,13 +91,13 @@ export function ChatPanel() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="What does the document say about…?"
               rows={3}
-              className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3 pr-32 text-sm shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30"
+              className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3.5 pr-36 text-sm leading-relaxed shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30"
               required
             />
             <Button
               type="submit"
               disabled={mutation.isPending || !query.trim()}
-              className="absolute bottom-2 right-2 bg-gradient-brand text-brand-foreground glow-brand"
+              className="absolute bottom-3 right-3 bg-gradient-brand text-brand-foreground glow-brand px-4"
               size="sm"
             >
               {mutation.isPending ? (
@@ -118,7 +121,7 @@ export function ChatPanel() {
         {mutation.isError && (
           <p
             role="alert"
-            className="rounded-lg border border-destructive/30 bg-destructive/10 p-2.5 text-sm text-destructive"
+            className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
           >
             {errorMessage(mutation.error)}
           </p>
@@ -134,8 +137,8 @@ function Answer({ response }: { response: ChatResponse }) {
   const { data: graphData, highlighted, hasGraph } = chatToGraphProps(response);
 
   return (
-    <div className="space-y-4" data-testid="chat-answer">
-      <div className="flex flex-wrap items-center gap-1.5">
+    <div className="space-y-5 pt-2" data-testid="chat-answer">
+      <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline" className="font-mono text-[10px]">
           {response.model}
         </Badge>
@@ -155,7 +158,7 @@ function Answer({ response }: { response: ChatResponse }) {
         )}
       </div>
 
-      <div className="rounded-xl border border-border/60 bg-background/50 p-4 text-sm leading-relaxed">
+      <div className="rounded-xl border border-border/60 bg-background/50 px-5 py-4 text-sm leading-relaxed">
         <p className="whitespace-pre-wrap">{response.answer}</p>
       </div>
 
@@ -213,10 +216,10 @@ function CitationItem({
 }) {
   return (
     <li
-      className="rounded-lg border border-border/60 bg-background/50 p-2.5 text-xs"
+      className="rounded-lg border border-border/60 bg-background/50 px-3 py-2.5 text-xs"
       data-testid="citation-item"
     >
-      <div className="mb-1 flex items-center justify-between gap-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
         <span className="font-mono text-muted-foreground">
           <span className="text-[color:var(--brand)]">[{index}]</span> doc{" "}
           {citation.document_id.slice(0, 8)}… · chunk {citation.chunk_index}

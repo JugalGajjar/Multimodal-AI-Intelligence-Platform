@@ -45,29 +45,29 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 sm:py-20">
-        <section className="flex max-w-3xl flex-col items-center gap-6 text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm">
+      <main className="flex flex-1 flex-col items-center justify-center px-6 py-16 sm:py-24">
+        <section className="flex max-w-3xl flex-col items-center gap-8 text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/60 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur-sm">
             <span className="size-1.5 rounded-full bg-gradient-brand" />
-            Graduate-quality multimodal RAG, end to end
+            Multimodal RAG, end to end
           </span>
 
-          <h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-6xl">
+          <h1 className="text-4xl font-semibold leading-[1.1] tracking-tight sm:text-6xl">
             Chat with everything
             <br />
             <span className="text-gradient-brand">you’ve ever uploaded.</span>
           </h1>
-          <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
+          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
             Multimodal RAG over text, images, PDFs, and audio — with a live
             knowledge graph and grounded, cited answers.
           </p>
 
-          <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row">
+          <div className="mt-4 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
             <Link
               href="/register"
               className={
                 buttonVariants({ size: "lg" }) +
-                " bg-gradient-brand text-brand-foreground glow-brand transition-transform hover:-translate-y-0.5"
+                " bg-gradient-brand text-brand-foreground glow-brand px-7 transition-transform hover:-translate-y-0.5"
               }
             >
               Get started
@@ -75,37 +75,41 @@ export default function Home() {
             </Link>
             <Link
               href="/login"
-              className={buttonVariants({ variant: "outline", size: "lg" })}
+              className={
+                buttonVariants({ variant: "outline", size: "lg" }) + " px-7"
+              }
             >
               I already have an account
             </Link>
           </div>
         </section>
 
-        <section className="mt-16 grid w-full max-w-5xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="mt-20 grid w-full max-w-5xl gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map(({ Icon, title, body }) => (
             <article
               key={title}
-              className="glass group rounded-xl p-5 transition-transform hover:-translate-y-1"
+              className="glass group rounded-xl p-6 transition-transform hover:-translate-y-1"
             >
               <span
                 aria-hidden="true"
-                className="mb-3 inline-flex size-9 items-center justify-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
+                className="mb-4 inline-flex size-10 items-center justify-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
               >
                 <Icon className="size-4" />
               </span>
               <h3 className="text-sm font-semibold">{title}</h3>
-              <p className="mt-1 text-xs text-muted-foreground">{body}</p>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                {body}
+              </p>
             </article>
           ))}
         </section>
 
-        <section className="mt-14">
+        <section className="mt-16">
           <HealthStatus />
         </section>
       </main>
 
-      <footer className="border-t border-border/60 px-6 py-5 text-center text-xs text-muted-foreground sm:px-10">
+      <footer className="border-t border-border/60 px-6 py-6 text-center text-xs text-muted-foreground sm:px-10">
         Built with FastAPI, Next.js, Qdrant, and Neo4j.
       </footer>
     </div>

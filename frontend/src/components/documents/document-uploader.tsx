@@ -63,17 +63,17 @@ export function DocumentUploader() {
   }
 
   return (
-    <Card className="glass w-full" data-testid="document-uploader">
-      <CardHeader>
+    <Card className="glass w-full py-6" data-testid="document-uploader">
+      <CardHeader className="px-6 pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <UploadCloud className="size-4 text-[color:var(--brand)]" aria-hidden="true" />
           Upload a document
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="mt-1">
           PDF, image, audio, or text. 50 MB max.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-5 px-6 pt-2">
         <label
           htmlFor="file"
           onDragOver={(e) => {
@@ -83,7 +83,7 @@ export function DocumentUploader() {
           onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
           className={
-            "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors " +
+            "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors " +
             (dragOver
               ? "border-[color:var(--brand)] bg-accent/40"
               : "border-border/70 hover:border-[color:var(--brand)] hover:bg-accent/30")
@@ -91,7 +91,7 @@ export function DocumentUploader() {
         >
           <span
             aria-hidden="true"
-            className="grid size-10 place-items-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
+            className="grid size-11 place-items-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
           >
             <CloudUpload className="size-5" />
           </span>
@@ -103,14 +103,14 @@ export function DocumentUploader() {
               </span>
             </span>
           ) : (
-            <>
-              <span className="text-sm font-medium">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
                 Drop a file or click to choose
-              </span>
-              <span className="text-xs text-muted-foreground">
+              </p>
+              <p className="text-xs text-muted-foreground">
                 PDF · PNG · JPG · WebP · MP3 · WAV · TXT · MD
-              </span>
-            </>
+              </p>
+            </div>
           )}
           <input
             ref={inputRef}
@@ -129,11 +129,11 @@ export function DocumentUploader() {
           </p>
         )}
 
-        <div className="flex justify-end">
+        <div className="flex justify-end pt-1">
           <Button
             onClick={onUpload}
             disabled={!file || submitting}
-            className="bg-gradient-brand text-brand-foreground glow-brand"
+            className="bg-gradient-brand text-brand-foreground glow-brand px-6"
           >
             {submitting ? (
               <>

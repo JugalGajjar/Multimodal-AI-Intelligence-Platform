@@ -47,16 +47,17 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="glass w-full max-w-md">
-      <CardHeader className="space-y-1.5">
+    <Card className="glass w-full max-w-md py-7">
+      <CardHeader className="space-y-2 px-7 pb-2">
         <CardTitle className="text-2xl">Welcome back</CardTitle>
-        <CardDescription>
-          Sign in to your <span className="text-gradient-brand font-medium">MMAP</span>{" "}
+        <CardDescription className="mt-1">
+          Sign in to your{" "}
+          <span className="text-gradient-brand font-medium">MMAP</span>{" "}
           workspace.
         </CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5 px-7 pt-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -67,6 +68,7 @@ export function LoginForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
+              className="h-11 px-4"
             />
           </div>
           <div className="space-y-2">
@@ -79,6 +81,7 @@ export function LoginForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
+              className="h-11 px-4"
             />
           </div>
           {error && (
@@ -87,7 +90,7 @@ export function LoginForm() {
             </p>
           )}
         </CardContent>
-        <CardFooter className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <CardFooter className="mt-5 flex flex-col gap-4 px-7 pt-5 sm:flex-row sm:items-center sm:justify-between">
           <a
             href="/register"
             className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
@@ -97,7 +100,7 @@ export function LoginForm() {
           <Button
             type="submit"
             disabled={submitting}
-            className="w-full bg-gradient-brand text-brand-foreground glow-brand sm:w-auto"
+            className="h-11 w-full bg-gradient-brand text-brand-foreground glow-brand px-6 sm:w-auto"
           >
             {submitting ? "Signing in…" : "Sign in"}
           </Button>

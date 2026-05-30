@@ -25,7 +25,7 @@ export function TopBar() {
     <>
       <header
         data-testid="app-topbar"
-        className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/70 px-4 backdrop-blur-xl sm:px-6"
+        className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/70 px-4 backdrop-blur-xl sm:px-8"
       >
         <button
           type="button"
@@ -40,7 +40,7 @@ export function TopBar() {
           <BrandMark size="sm" />
         </div>
 
-        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+        <div className="ml-auto flex items-center gap-3 sm:gap-4">
           {user?.email && (
             <span
               className="hidden text-xs text-muted-foreground sm:inline"
@@ -55,7 +55,7 @@ export function TopBar() {
             size="sm"
             onClick={onLogout}
             data-testid="topbar-sign-out"
-            className="gap-1.5"
+            className="gap-1.5 px-3"
           >
             <LogOut className="size-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">Sign out</span>

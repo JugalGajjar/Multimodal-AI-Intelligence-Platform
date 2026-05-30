@@ -151,16 +151,19 @@ export function FullGraphView() {
         )}
       </header>
 
-      <div className="grid w-full gap-5 lg:grid-cols-[1fr_340px]">
-        <Card className="glass overflow-hidden">
-          <CardHeader className="pb-3">
-            <div className="space-y-2">
-              <Label htmlFor="kg-search" className="text-xs uppercase text-muted-foreground">
+      <div className="grid w-full gap-6 lg:grid-cols-[1fr_340px]">
+        <Card className="glass overflow-hidden py-6">
+          <CardHeader className="px-6 pb-3">
+            <div className="space-y-2.5">
+              <Label
+                htmlFor="kg-search"
+                className="text-xs uppercase text-muted-foreground"
+              >
                 Filter by name
               </Label>
               <div className="relative">
                 <Search
-                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                   aria-hidden="true"
                 />
                 <Input
@@ -169,12 +172,12 @@ export function FullGraphView() {
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search entities by name…"
                   data-testid="kg-search"
-                  className="pl-9"
+                  className="h-11 pl-10 pr-4"
                 />
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-6">
             {query.isLoading && (
               <p
                 className="py-10 text-center text-sm text-muted-foreground"
@@ -215,10 +218,10 @@ export function FullGraphView() {
               onClose={() => setSelectedId(null)}
             />
           ) : (
-            <Card className="glass h-full">
-              <CardHeader>
+            <Card className="glass h-full py-6">
+              <CardHeader className="px-6">
                 <CardTitle className="text-base">Entity details</CardTitle>
-                <CardDescription>
+                <CardDescription className="mt-1">
                   Click a node to see its description and relationships.
                 </CardDescription>
               </CardHeader>
@@ -264,9 +267,9 @@ function SelectedNodePanel({
   onClose: () => void;
 }) {
   return (
-    <Card className="glass" data-testid="kg-selected">
-      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
-        <div className="space-y-1">
+    <Card className="glass py-6" data-testid="kg-selected">
+      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 px-6">
+        <div className="space-y-1.5">
           <CardTitle className="text-base break-all">{node.name}</CardTitle>
           <CardDescription className="flex items-center gap-2">
             <span
@@ -287,7 +290,7 @@ function SelectedNodePanel({
           <X className="size-4" aria-hidden="true" />
         </Button>
       </CardHeader>
-      <CardContent className="space-y-4 text-xs">
+      <CardContent className="space-y-5 px-6 text-xs">
         {node.description && (
           <p className="text-foreground/90 leading-relaxed">{node.description}</p>
         )}

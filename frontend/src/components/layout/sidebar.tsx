@@ -42,7 +42,7 @@ export function Sidebar() {
         <BrandMark size="md" />
       </div>
 
-      <nav className="flex-1 space-y-1 px-3" aria-label="Primary">
+      <nav className="flex-1 space-y-1 px-4 py-2" aria-label="Primary">
         {NAV.map(({ href, label, Icon, match }) => {
           const active = match ? match(pathname) : pathname === href;
           return (
@@ -52,7 +52,7 @@ export function Sidebar() {
               aria-current={active ? "page" : undefined}
               data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
               className={
-                "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
+                "group flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors " +
                 (active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground")
@@ -73,8 +73,8 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-sidebar-border px-5 py-4">
-        <div className="flex items-start gap-2 rounded-lg bg-sidebar-accent/40 p-3 text-xs text-sidebar-foreground/80">
+      <div className="border-t border-sidebar-border px-5 py-5">
+        <div className="flex items-start gap-2.5 rounded-lg bg-sidebar-accent/40 p-3.5 text-xs leading-relaxed text-sidebar-foreground/80">
           <Sparkles
             aria-hidden="true"
             className="mt-0.5 size-3.5 shrink-0 text-[color:var(--accent-violet)]"

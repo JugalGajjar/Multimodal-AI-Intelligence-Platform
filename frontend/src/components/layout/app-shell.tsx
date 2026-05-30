@@ -12,7 +12,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         <main
-          className="flex-1 px-4 py-6 sm:px-8 sm:py-10"
+          className="flex-1 px-5 py-8 sm:px-10 sm:py-12"
           data-testid="app-shell-main"
         >
           {children}

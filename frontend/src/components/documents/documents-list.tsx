@@ -100,19 +100,19 @@ export function DocumentsList() {
   });
 
   return (
-    <Card className="glass w-full">
-      <CardHeader>
+    <Card className="glass w-full py-6">
+      <CardHeader className="px-6 pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <Files className="size-4 text-[color:var(--brand)]" aria-hidden="true" />
           Your documents
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="mt-1">
           {data
             ? `${data.total} document${data.total === 1 ? "" : "s"}`
             : "Loading…"}
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-6 pt-2">
         {isLoading && (
           <p className="text-sm text-muted-foreground">Loading…</p>
         )}
@@ -128,16 +128,16 @@ export function DocumentsList() {
           </div>
         )}
         {data && data.items.length > 0 && (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {data.items.map((doc) => {
               const Icon = iconForMime(doc.content_type);
               const isOpen = openId === doc.id;
               return (
                 <li
                   key={doc.id}
-                  className="rounded-xl border border-border/60 bg-background/40 p-3 transition-colors hover:bg-background/70"
+                  className="rounded-xl border border-border/60 bg-background/40 p-4 transition-colors hover:bg-background/70"
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-4">
                     <span
                       aria-hidden="true"
                       className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/60 text-[color:var(--brand)]"
