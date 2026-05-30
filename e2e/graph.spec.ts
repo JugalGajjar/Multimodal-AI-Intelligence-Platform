@@ -94,7 +94,7 @@ test.describe("Phase 4.3d — /dashboard/graph full graph page", () => {
     await expect(page.getByTestId("kg-empty-full")).toBeVisible();
   });
 
-  test("back-to-dashboard link navigates to /dashboard", async ({ page }) => {
+  test("sidebar Dashboard link navigates back to /dashboard", async ({ page }) => {
     await page.route("**/api/v1/graph/snapshot*", async (route) => {
       await route.fulfill({
         status: 200,
@@ -106,9 +106,9 @@ test.describe("Phase 4.3d — /dashboard/graph full graph page", () => {
     await registerAndSignIn(page);
     await page.goto("/dashboard/graph");
 
-    await page.getByTestId("back-to-dashboard").click();
+    await page.getByTestId("nav-dashboard").click();
     await page.waitForURL("**/dashboard");
-    await expect(page.getByRole("heading", { name: /dashboard/i })).toBeVisible();
+    await expect(page.getByTestId("app-shell-main")).toBeVisible();
   });
 
   test("unauthenticated /dashboard/graph redirects to /login", async ({
@@ -116,7 +116,9 @@ test.describe("Phase 4.3d — /dashboard/graph full graph page", () => {
   }) => {
     await page.goto("/dashboard/graph");
     await page.waitForURL("**/login");
-    await expect(page.getByText(/welcome back to mmap/i)).toBeVisible();
+    await expect(
+      page.getByText(/sign in to your\s+MMAP\s+workspace/i),
+    ).toBeVisible();
   });
 
   test("typing in the search box narrows the displayed entity badge", async ({

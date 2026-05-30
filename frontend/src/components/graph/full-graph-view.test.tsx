@@ -235,14 +235,8 @@ describe("<FullGraphView />", () => {
     expect(screen.getByText(/click a node/i)).toBeInTheDocument();
   });
 
-  it("back-to-dashboard link points at /dashboard", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(SAMPLE)));
-
-    renderWithQuery(<FullGraphView />);
-
-    const link = await screen.findByTestId("back-to-dashboard");
-    expect(link).toHaveAttribute("href", "/dashboard");
-  });
+  // (Inline back-to-dashboard link was removed in the layout refresh — sidebar
+  // nav in the AppShell now handles navigation. Covered by E2E graph.spec.ts.)
 
   it("calls the snapshot API with the bearer token and a limit", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(SAMPLE));

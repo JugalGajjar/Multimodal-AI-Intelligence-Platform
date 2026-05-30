@@ -1,25 +1,22 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Phase 1 smoke — landing page + backend integration", () => {
-  test("renders the app title", async ({ page }) => {
+  test("renders the hero + brand mark", async ({ page }) => {
     await page.goto("/");
 
     await expect(
-      page.getByRole("heading", { name: "Multimodal AI Intelligence Platform" }),
+      page.getByRole("heading", { name: /chat with everything/i }),
     ).toBeVisible();
+    // Brand wordmark in the top-left
+    await expect(page.getByTestId("brand-mark").first()).toBeVisible();
   });
 
-  test("health card fetches backend and shows ok / version / environment", async ({
-    page,
-  }) => {
+  test("health pill shows ok / version / environment", async ({ page }) => {
     await page.goto("/");
 
-    const card = page.getByText("Backend status").locator("..").locator("..");
-    await expect(card).toBeVisible();
-
-    await expect(page.getByText("ok")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("0.1.0")).toBeVisible();
-    await expect(page.getByText("development")).toBeVisible();
+    await expect(
+      page.getByText(/backend ok · v0\.1\.0 · development/i),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("backend /api/v1/health is reachable from the browser context", async ({

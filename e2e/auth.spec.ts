@@ -13,7 +13,9 @@ test.describe("Phase 1.5 — auth: register → dashboard → logout → login",
   }) => {
     await page.goto("/dashboard");
     await page.waitForURL("**/login");
-    await expect(page.getByText(/welcome back to mmap/i)).toBeVisible();
+    await expect(
+      page.getByText(/sign in to your\s+MMAP\s+workspace/i),
+    ).toBeVisible();
   });
 
   test("full happy path", async ({ page }) => {

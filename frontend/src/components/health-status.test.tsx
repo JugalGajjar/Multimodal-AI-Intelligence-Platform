@@ -26,7 +26,7 @@ describe("<HealthStatus />", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows loading state initially, then renders backend data", async () => {
+  it("shows probing initially, then renders backend status/version/env", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -43,14 +43,11 @@ describe("<HealthStatus />", () => {
     expect(screen.getByText(/probing/i)).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByText("ok")).toBeInTheDocument();
+      expect(screen.getByText(/Backend ok · v0\.1\.0 · test/)).toBeInTheDocument();
     });
-
-    expect(screen.getByText("0.1.0")).toBeInTheDocument();
-    expect(screen.getByText("test")).toBeInTheDocument();
   });
 
-  it("renders an error message when the request fails", async () => {
+  it("renders an unreachable pill when the request fails", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response("nope", {
         status: 500,
@@ -61,35 +58,17 @@ describe("<HealthStatus />", () => {
     renderWithQuery(<HealthStatus />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/failed to reach backend/i),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/backend unreachable/i)).toBeInTheDocument();
     });
   });
 
-  it("renders an error message when the network call rejects", async () => {
+  it("renders an unreachable pill when the network call rejects", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
 
     renderWithQuery(<HealthStatus />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/failed to reach backend/i),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/backend unreachable/i)).toBeInTheDocument();
     });
-  });
-
-  it("always renders the card title and description", () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({}), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-
-    renderWithQuery(<HealthStatus />);
-
-    expect(screen.getByText("Backend status")).toBeInTheDocument();
-    expect(screen.getByText(/probe of \/api\/v1\/health/i)).toBeInTheDocument();
   });
 });
