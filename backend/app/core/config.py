@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_whisper_model: str = "whisper-large-v3-turbo"
     groq_reasoning_model: str = "openai/gpt-oss-20b"
+    # Extraction needs strict JSON output over noisy PDF/OCR text. The default
+    # reasoning model (gpt-oss-20b) is unreliable under Groq's json_object
+    # response_format on that input; llama-3.3-70b handles it cleanly.
+    groq_extraction_model: str = "llama-3.3-70b-versatile"
 
     @property
     def cors_origins(self) -> list[str]:
