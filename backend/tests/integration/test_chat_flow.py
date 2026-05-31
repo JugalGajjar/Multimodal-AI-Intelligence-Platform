@@ -217,7 +217,7 @@ async def test_chat_with_unit_patched_llm(http, auth):
     async with async_session_maker() as db:
         user = (await db.execute(select(User).where(User.id == me["id"]))).scalar_one()
         with patch(
-            "app.rag.router.chat_completion",
+            "app.agents.chat_workflow.chat_completion",
             return_value=(
                 "The chunk size is 500 characters and the embedding model "
                 "is BAAI/bge-small-en-v1.5 [1]."
@@ -267,7 +267,7 @@ async def test_chat_includes_graph_facts_when_graph_populated(http, auth):
     async with async_session_maker() as db:
         user = (await db.execute(select(User).where(User.id == me["id"]))).scalar_one()
         with patch(
-            "app.rag.router.chat_completion",
+            "app.agents.chat_workflow.chat_completion",
             return_value="Synthetic answer mentioning Qdrant.",
         ):
             resp = await rag_router.chat(
