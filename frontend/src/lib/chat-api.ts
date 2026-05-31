@@ -10,10 +10,12 @@ export type ChatCitation = {
 
 export type ChatGraphRelationEdge = {
   relation: string;
-  direction: "in" | "out" | string;
+  direction?: "in" | "out" | string;
   other: string;
   other_type?: string;
   other_description?: string;
+  distance?: number;
+  relation_chain?: string[];
 };
 
 export type ChatEntityUsed = {

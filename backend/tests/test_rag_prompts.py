@@ -84,6 +84,54 @@ class TestBuildGraphBlock:
         assert "A (Technology)" in out
         assert "B (Technology)" in out
 
+    def test_renders_multi_hop_with_chain_arrow_and_hop_tag(self):
+        facts = [
+            _fact(
+                "Bandit",
+                relations=[
+                    GraphRelation(
+                        relation="used by → repairs",
+                        other="Vulnerability",
+                        distance=2,
+                        relation_chain=["used by", "repairs"],
+                    )
+                ],
+            )
+        ]
+
+        out = build_graph_block(facts)
+
+        assert "↝ used by → repairs Vulnerability" in out
+        assert "(2-hop)" in out
+
+    def test_mixed_1_and_2_hop_facts_render_distinctly(self):
+        facts = [
+            _fact(
+                "Qdrant",
+                relations=[
+                    GraphRelation(
+                        relation="uses",
+                        other="Cosine Distance",
+                        distance=1,
+                        relation_chain=["uses"],
+                        direction="out",
+                    ),
+                    GraphRelation(
+                        relation="uses → part of",
+                        other="Vector Math",
+                        distance=2,
+                        relation_chain=["uses", "part of"],
+                    ),
+                ],
+            )
+        ]
+
+        out = build_graph_block(facts)
+
+        assert "→ uses Cosine Distance" in out
+        assert "↝ uses → part of Vector Math" in out
+        assert "(2-hop)" in out
+
 
 class TestBuildUserMessage:
     def test_with_chunks_only_includes_passages_section(self):

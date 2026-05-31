@@ -51,10 +51,11 @@ def _to_entities_used(facts: list[GraphFact]) -> list[EntityUsed]:
             relations=[
                 GraphRelationEdge(
                     relation=r.relation,
-                    direction=r.direction,
                     other=r.other,
                     other_type=r.other_type,
                     other_description=r.other_description,
+                    distance=r.distance,
+                    relation_chain=list(r.relation_chain),
                 )
                 for r in f.relations
             ],

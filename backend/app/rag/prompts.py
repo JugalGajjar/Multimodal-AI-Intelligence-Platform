@@ -30,7 +30,11 @@ def build_context_block(chunks: list[RetrievedChunk]) -> str:
 
 
 def build_graph_block(facts: list[GraphFact]) -> str:
-    """Render a compact bulleted list of entities + their 1-hop relationships."""
+    """Render a compact bulleted list of entities + their multi-hop chains.
+
+    For 1-hop facts:               "→ uses Cosine Distance"   (← for incoming)
+    For 2+-hop (distance>1):       "↝ uses → part of Vector Math   (2-hop)"
+    """
     if not facts:
         return ""
 
@@ -41,8 +45,13 @@ def build_graph_block(facts: list[GraphFact]) -> str:
             header += f": {fact.description.strip()}"
         lines.append(header)
         for rel in fact.relations:
-            arrow = "→" if rel.direction == "out" else "←"
-            lines.append(f"    {arrow} {rel.relation} {rel.other}")
+            if rel.distance > 1:
+                chain = " → ".join(rel.relation_chain) if rel.relation_chain else rel.relation
+                tail = f"   ({rel.distance}-hop)"
+                lines.append(f"    ↝ {chain} {rel.other}{tail}")
+            else:
+                arrow = "→" if rel.direction == "out" else "←"
+                lines.append(f"    {arrow} {rel.relation} {rel.other}")
     return "\n".join(lines)
 
 

@@ -262,11 +262,11 @@ async def test_expand_returns_facts_for_matched_entities():
             "description": "vector DB",
             "relations": [
                 {
-                    "relation": "uses",
-                    "direction": "out",
                     "other": "Cosine Distance",
                     "other_type": "Concept",
                     "other_description": "vector similarity metric",
+                    "distance": 1,
+                    "relation_chain": ["uses"],
                 }
             ],
         },
@@ -300,6 +300,8 @@ async def test_expand_returns_facts_for_matched_entities():
     assert isinstance(rel, GraphRelation)
     assert rel.relation == "uses"
     assert rel.other == "Cosine Distance"
+    assert rel.distance == 1
+    assert rel.relation_chain == ["uses"]
 
     called_names = facts_call.call_args.args[1]
     assert "Cosine Distance" in called_names
@@ -307,7 +309,7 @@ async def test_expand_returns_facts_for_matched_entities():
 
 
 @pytest.mark.asyncio
-async def test_expand_drops_relations_with_missing_other_or_relation():
+async def test_expand_drops_relations_with_missing_other_or_chain():
     candidates = [{"name": "Qdrant", "type": "Technology"}]
     fact_rows = [
         {
@@ -315,9 +317,21 @@ async def test_expand_drops_relations_with_missing_other_or_relation():
             "type": "Technology",
             "description": "",
             "relations": [
-                {"relation": "uses", "direction": "out", "other": "Cosine Distance"},
-                {"relation": None, "direction": "out", "other": "X"},  # dropped
-                {"relation": "rel", "direction": "out", "other": None},  # dropped
+                {
+                    "other": "Cosine Distance",
+                    "distance": 1,
+                    "relation_chain": ["uses"],
+                },
+                {
+                    "other": "X",
+                    "distance": 1,
+                    "relation_chain": [],  # dropped — empty chain
+                },
+                {
+                    "other": None,  # dropped — no endpoint
+                    "distance": 1,
+                    "relation_chain": ["rel"],
+                },
             ],
         },
     ]
@@ -343,3 +357,121 @@ async def test_expand_drops_relations_with_missing_other_or_relation():
 
     assert len(result[0].relations) == 1
     assert result[0].relations[0].other == "Cosine Distance"
+
+
+@pytest.mark.asyncio
+async def test_expand_passes_hop_config_to_neo4j_query():
+    """The expansion module must forward `max_hops` and the per-seed cap so
+    Neo4j knows how far to walk."""
+    candidates = [{"name": "Qdrant", "type": "Technology"}]
+    with (
+        patch(
+            "app.rag.graph_expansion.list_user_entities",
+            new=AsyncMock(return_value=candidates),
+        ),
+        patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "app.rag.graph_expansion.get_entity_facts",
+            new=AsyncMock(return_value=[]),
+        ) as facts_call,
+    ):
+        await expand_with_graph(
+            query="qdrant",
+            chunks=[_chunk("qdrant")],
+            user_id=uuid4(),
+            max_hops=3,
+            max_facts_per_seed=7,
+        )
+
+    kwargs = facts_call.call_args.kwargs
+    assert kwargs["max_hops"] == 3
+    assert kwargs["max_facts_per_seed"] == 7
+
+
+@pytest.mark.asyncio
+async def test_expand_renders_multi_hop_chain_with_distance_and_arrow():
+    """A distance>1 row should surface as a joined chain with the right
+    `distance` and `relation_chain`. The `relation` field is the joined view."""
+    candidates = [{"name": "Bandit", "type": "Technology"}]
+    fact_rows = [
+        {
+            "name": "Bandit",
+            "type": "Technology",
+            "description": "static analyzer",
+            "relations": [
+                {
+                    "other": "Vulnerability",
+                    "other_type": "Concept",
+                    "other_description": "security issue",
+                    "distance": 2,
+                    "relation_chain": ["used by", "repairs"],
+                }
+            ],
+        },
+    ]
+    with (
+        patch(
+            "app.rag.graph_expansion.list_user_entities",
+            new=AsyncMock(return_value=candidates),
+        ),
+        patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "app.rag.graph_expansion.get_entity_facts",
+            new=AsyncMock(return_value=fact_rows),
+        ),
+    ):
+        result = await expand_with_graph(
+            query="bandit",
+            chunks=[_chunk("bandit is used by SecureFixAgent which repairs issues")],
+            user_id=uuid4(),
+        )
+
+    rel = result[0].relations[0]
+    assert rel.distance == 2
+    assert rel.relation_chain == ["used by", "repairs"]
+    assert rel.relation == "used by → repairs"
+    assert rel.other == "Vulnerability"
+
+
+@pytest.mark.asyncio
+async def test_expand_clamps_max_hops_to_safe_range():
+    """Out-of-range values are clamped to 1..3 so the cypher builder never
+    sees an unsupported depth."""
+    candidates = [{"name": "Qdrant", "type": "Technology"}]
+    with (
+        patch(
+            "app.rag.graph_expansion.list_user_entities",
+            new=AsyncMock(return_value=candidates),
+        ),
+        patch(
+            "app.rag.graph_expansion.list_entity_names_for_documents",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "app.rag.graph_expansion.get_entity_facts",
+            new=AsyncMock(return_value=[]),
+        ) as facts_call,
+    ):
+        await expand_with_graph(
+            query="qdrant",
+            chunks=[_chunk("qdrant")],
+            user_id=uuid4(),
+            max_hops=9,
+        )
+        await expand_with_graph(
+            query="qdrant",
+            chunks=[_chunk("qdrant")],
+            user_id=uuid4(),
+            max_hops=0,
+        )
+
+    first = facts_call.call_args_list[0].kwargs["max_hops"]
+    second = facts_call.call_args_list[1].kwargs["max_hops"]
+    assert first == 3
+    assert second == 1

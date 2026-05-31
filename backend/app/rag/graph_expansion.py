@@ -11,7 +11,8 @@ Two complementary sources:
    the retrieved chunks. Surfaces graph context tied to the evidence even
    when the question doesn't say the entity name out loud.
 
-The union (name-matches first) is deduped, capped, and resolved to facts.
+The union (name-matches first) is deduped, capped, and resolved to multi-hop
+facts. Closer hops are preferred when the per-seed cap drops the long chains.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from app.core.config import settings
 from app.graph.neo4j_client import (
     get_entity_facts,
     list_entity_names_for_documents,
@@ -29,11 +31,25 @@ from app.rag.retrieval import RetrievedChunk
 
 @dataclass(frozen=True)
 class GraphRelation:
-    relation: str
-    direction: str  # "out" | "in"
+    """A fact about an entity's relationship to another entity.
+
+    For 1-hop facts, `relation_chain` is a single-element list and `distance`
+    is 1. For multi-hop facts, the chain describes the shortest path:
+        Bandit --(used by)--> SecureFixAgent --(repairs)--> Vulnerability
+    would surface as `relation_chain=["used by", "repairs"]`, `distance=2`,
+    `other="Vulnerability"`.
+
+    `direction` ("in" | "out") is meaningful for 1-hop only; multi-hop walks
+    are undirected and default to "out".
+    """
+
+    relation: str  # joined chain, e.g. "uses → part of"
     other: str
     other_type: str = ""
     other_description: str = ""
+    distance: int = 1
+    relation_chain: list[str] = field(default_factory=list)
+    direction: str = "out"
 
 
 @dataclass(frozen=True)
@@ -98,13 +114,40 @@ def _merge_unique(*sources: list[str]) -> list[str]:
     return out
 
 
+def _clamp_hops(value: int) -> int:
+    return max(1, min(3, value))
+
+
+def _build_relation(raw: dict) -> GraphRelation | None:
+    """Normalize a row from `get_entity_facts` into a GraphRelation.
+
+    Skips rows whose endpoint or chain is empty.
+    """
+    other = raw.get("other")
+    chain = raw.get("relation_chain") or []
+    # Drop any falsy individual edges to keep "→" rendering tidy.
+    chain = [str(r).strip() for r in chain if r]
+    if not other or not chain:
+        return None
+    return GraphRelation(
+        relation=" → ".join(chain),
+        other=str(other),
+        other_type=raw.get("other_type") or "",
+        other_description=raw.get("other_description") or "",
+        distance=int(raw.get("distance") or len(chain) or 1),
+        relation_chain=chain,
+        direction=raw.get("direction") or "out",
+    )
+
+
 async def expand_with_graph(
     *,
     query: str,
     chunks: list[RetrievedChunk],
     user_id: UUID,
     max_entities: int = 8,
-    max_relations_per_entity: int = 6,
+    max_hops: int | None = None,
+    max_facts_per_seed: int | None = None,
 ) -> list[GraphFact]:
     """Return GraphFact objects for entities tied to this turn.
 
@@ -116,7 +159,15 @@ async def expand_with_graph(
 
     Returns [] when the user has no graph yet OR neither source yields any
     entity tied to the current turn.
+
+    `max_hops` defaults to `settings.graph_max_hops` (typically 2). Pass `1`
+    to force the prior single-hop behaviour.
     """
+    hops = _clamp_hops(max_hops if max_hops is not None else settings.graph_max_hops)
+    per_seed = (
+        max_facts_per_seed if max_facts_per_seed is not None else settings.graph_max_facts_per_seed
+    )
+
     candidates = await list_user_entities(str(user_id), limit=500)
     if not candidates:
         return []
@@ -136,7 +187,10 @@ async def expand_with_graph(
         return []
 
     raw = await get_entity_facts(
-        str(user_id), target_names, limit_relations=max_relations_per_entity
+        str(user_id),
+        target_names,
+        max_hops=hops,
+        max_facts_per_seed=per_seed,
     )
 
     # Preserve our preferred order (name-matched first) instead of whatever
@@ -148,23 +202,17 @@ async def expand_with_graph(
         row = raw_by_lower.get(name.lower())
         if row is None:
             continue
-        rels = [
-            GraphRelation(
-                relation=r.get("relation") or "",
-                direction=r.get("direction") or "out",
-                other=r.get("other") or "",
-                other_type=r.get("other_type") or "",
-                other_description=r.get("other_description") or "",
-            )
-            for r in (row.get("relations") or [])
-            if (r.get("other") and r.get("relation"))
-        ]
+        rels: list[GraphRelation] = []
+        for raw_rel in row.get("relations") or []:
+            built = _build_relation(raw_rel)
+            if built is not None:
+                rels.append(built)
         facts.append(
             GraphFact(
                 name=row["name"],
                 type=row.get("type") or "Concept",
                 description=row.get("description") or "",
-                relations=rels[:max_relations_per_entity],
+                relations=rels,
             )
         )
     return facts

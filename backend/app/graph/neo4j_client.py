@@ -220,19 +220,71 @@ async def list_entity_names_for_documents(
         return [row["name"] async for row in result]
 
 
+_MAX_SUPPORTED_HOPS = 3
+
+
+def _build_facts_cypher(max_hops: int) -> str:
+    """Cypher pattern's `*1..N` requires a literal integer, so we template it.
+
+    We validate `max_hops` in Python before formatting so this is safe.
+    """
+    if max_hops < 1 or max_hops > _MAX_SUPPORTED_HOPS:
+        raise ValueError(f"max_hops must be in 1..{_MAX_SUPPORTED_HOPS}, got {max_hops}")
+    return f"""
+    UNWIND $lower_names AS seed_lower
+    MATCH (e:Entity {{user_id: $user_id}})
+    WHERE toLower(e.name) = seed_lower
+    OPTIONAL MATCH path = (e)-[rels:RELATES_TO*1..{max_hops}]-(other:Entity {{user_id: $user_id}})
+    WHERE other IS NULL OR other.name <> e.name
+    WITH e, other, length(path) AS dist, [r IN rels | r.relation] AS rel_chain
+    ORDER BY dist ASC
+    WITH e, other,
+         head(collect({{dist: dist, rels: rel_chain}})) AS shortest
+    WITH e,
+         collect(
+            CASE WHEN other IS NULL THEN NULL
+            ELSE {{
+              other: other.name,
+              other_type: other.type,
+              other_description: other.description,
+              distance: shortest.dist,
+              relation_chain: shortest.rels
+            }} END
+         ) AS all_rels
+    WITH e, [x IN all_rels WHERE x IS NOT NULL] AS rels_filtered
+    RETURN
+        e.name AS name,
+        e.type AS type,
+        e.description AS description,
+        rels_filtered[..$facts_per_seed] AS relations
+    """
+
+
 async def get_entity_facts(
-    user_id: str, names: list[str], *, limit_relations: int = 25
+    user_id: str,
+    names: list[str],
+    *,
+    max_hops: int = 1,
+    max_facts_per_seed: int = 12,
 ) -> list[dict[str, Any]]:
     """For each entity in `names` belonging to `user_id`, return the entity
-    plus its 1-hop neighbours (in either direction) as a flat dict.
+    plus its reachable neighbours within `max_hops`.
+
+    For each neighbour we keep the SHORTEST path's relation chain; closer hops
+    are preferred so the per-seed cap can drop the long-distance noise first.
 
     Case-insensitive name matching; the canonical stored name is returned.
     Shape:
         {
           "name": str, "type": str, "description": str,
-          "relations": [{"relation": str, "direction": "out"|"in",
-                         "other": str, "other_type": str,
-                         "other_description": str}, ...]
+          "relations": [
+            {
+              "other": str, "other_type": str, "other_description": str,
+              "distance": int,                # 1..max_hops
+              "relation_chain": [str, ...],   # one per edge along the path
+            },
+            ...
+          ]
         }
     """
     if not names:
@@ -241,27 +293,13 @@ async def get_entity_facts(
     driver = await get_driver()
     lowered = list({n.lower() for n in names})
 
+    cypher = _build_facts_cypher(max_hops)
     async with driver.session() as session:
         result = await session.run(
-            """
-            MATCH (e:Entity {user_id: $user_id})
-            WHERE toLower(e.name) IN $lower_names
-            OPTIONAL MATCH (e)-[r:RELATES_TO]-(other:Entity)
-            WITH e,
-                 CASE WHEN startNode(r) = e THEN 'out' ELSE 'in' END AS dir,
-                 r.relation AS rel, other
-            WITH e, collect({direction: dir, relation: rel,
-                             other: other.name, other_type: other.type,
-                             other_description: other.description})[..$limit] AS rels
-            RETURN
-                e.name AS name,
-                e.type AS type,
-                e.description AS description,
-                [x IN rels WHERE x.other IS NOT NULL] AS relations
-            """,
+            cypher,
             user_id=user_id,
             lower_names=lowered,
-            limit=limit_relations,
+            facts_per_seed=max_facts_per_seed,
         )
         return [dict(record) async for record in result]
 

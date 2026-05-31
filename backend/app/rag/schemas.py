@@ -19,10 +19,12 @@ class Citation(BaseModel):
 
 class GraphRelationEdge(BaseModel):
     relation: str
-    direction: str  # "out" or "in"
+    direction: str = "out"  # "out" | "in" — semantic for 1-hop; "out" for multi-hop
     other: str
     other_type: str = ""
     other_description: str = ""
+    distance: int = 1
+    relation_chain: list[str] = []
 
 
 class EntityUsed(BaseModel):

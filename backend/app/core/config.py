@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     # response_format on that input; llama-3.3-70b handles it cleanly.
     groq_extraction_model: str = "llama-3.3-70b-versatile"
 
+    # Knowledge-graph expansion knobs.
+    # `graph_max_hops` controls how far we walk from each seed entity (1, 2 or
+    # 3). `graph_max_facts_per_seed` caps the total fact count returned per
+    # seed regardless of depth — closer hops are preferred when capping.
+    graph_max_hops: int = 2
+    graph_max_facts_per_seed: int = 12
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.backend_cors_origins.split(",") if o.strip()]
