@@ -27,11 +27,7 @@ def retrieve(
     top_k: int = 5,
     document_ids: list[UUID] | None = None,
 ) -> list[RetrievedChunk]:
-    """Embed the query and search Qdrant. Always filters by user_id.
-
-    Returns an empty list if the user has no indexed chunks (or if no hits
-    match the optional document_id filter).
-    """
+    # Always filters by user_id. Empty list when nothing matches.
     vector = embed_query(query)
 
     must: list[qmodels.Condition] = [
@@ -58,8 +54,7 @@ def retrieve(
             with_payload=True,
         )
     except UnexpectedResponse as exc:
-        # Collection-not-found (404) on a fresh stack with no ingests is a
-        # benign empty-result, not an error. Other 4xx/5xx is real.
+        # Collection-not-found on a fresh stack is benign; other errors are not.
         if getattr(exc, "status_code", None) == 404:
             return []
         raise

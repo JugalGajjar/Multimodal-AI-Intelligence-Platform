@@ -35,17 +35,8 @@ class EntityUsed(BaseModel):
 
 
 class VerificationInfo(BaseModel):
-    """Groundedness verdict from the Phase 5.2 verification agent.
-
-    `verdict`:
-      verified    — every atomic claim is supported by the cited context.
-      partial     — at least one claim is unsupported but the score is above
-                    the partial threshold.
-      unsupported — the answer is mostly unsupported by the context.
-      skipped     — verification didn't run (disabled, no context, or LLM
-                    error). `skip_reason` carries the cause for debugging.
-    """
-
+    # verdict ∈ {verified, partial, unsupported, skipped}. skip_reason
+    # carries the cause when the agent did not run.
     verdict: str = "skipped"
     groundedness_score: float = 0.0
     total_claims: int = 0

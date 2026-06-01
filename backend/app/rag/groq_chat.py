@@ -1,10 +1,4 @@
-"""Async chat-completion wrapper around Groq's hosted LLMs.
-
-Drop-in replacement for `app.rag.openrouter.chat_completion` — same signature,
-same return type, same error semantics. Used by the `/api/v1/chat` endpoint.
-
-OpenRouter is still used for vision (Groq doesn't host vision models yet).
-"""
+"""Async chat-completion wrapper around Groq."""
 
 from typing import Any
 
@@ -12,8 +6,7 @@ from app.core.config import settings
 
 
 class GroqChatError(Exception):
-    """Wraps Groq SDK errors so callers can map to HTTP status codes."""
-
+    # Wraps Groq SDK errors so callers can map to HTTP status codes.
     def __init__(self, status_code: int, body: Any) -> None:
         super().__init__(f"Groq returned {status_code}")
         self.status_code = status_code
@@ -29,11 +22,6 @@ async def chat_completion(
     response_format: dict | None = None,
     timeout: float = 60.0,
 ) -> str:
-    """Call Groq chat completions and return the assistant text.
-
-    Raises GroqChatError(503) if no key is configured, or wraps the SDK's
-    error as GroqChatError(<status>, body).
-    """
     if not settings.groq_api_key:
         raise GroqChatError(503, {"detail": "GROQ_API_KEY not configured"})
 

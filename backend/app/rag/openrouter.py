@@ -8,8 +8,6 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 class OpenRouterError(Exception):
-    """Wraps non-2xx responses from OpenRouter so callers can map to HTTP."""
-
     def __init__(self, status_code: int, body: object):
         super().__init__(f"OpenRouter returned {status_code}")
         self.status_code = status_code
@@ -24,7 +22,6 @@ async def chat_completion(
     max_tokens: int | None = None,
     timeout: float = 60.0,
 ) -> str:
-    """Call OpenRouter and return the assistant text. Raises if no key set."""
     if not settings.openrouter_api_key:
         raise OpenRouterError(503, {"detail": "OPENROUTER_API_KEY not configured"})
 
