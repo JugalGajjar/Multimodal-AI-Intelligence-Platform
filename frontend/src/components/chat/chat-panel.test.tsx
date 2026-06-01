@@ -304,4 +304,123 @@ describe("<ChatPanel />", () => {
       expect(link).toHaveAttribute("href", "/dashboard/graph");
     });
   });
+
+  describe("verification badge (Phase 5.2)", () => {
+    function verifiedBody(verdict: "verified" | "partial" | "unsupported", extras: object = {}) {
+      return {
+        answer: "Some answer.",
+        citations: [],
+        entities_used: [],
+        model: "openai/gpt-oss-20b",
+        used_context: true,
+        used_graph: false,
+        verification: {
+          verdict,
+          groundedness_score: verdict === "verified" ? 1 : verdict === "partial" ? 0.5 : 0.1,
+          total_claims: 2,
+          supported_claims: verdict === "verified" ? 2 : 1,
+          unsupported_claims: verdict === "verified" ? [] : ["fabricated bit"],
+          skip_reason: "",
+          ...extras,
+        },
+      };
+    }
+
+    function skippedBody(reason: string) {
+      return {
+        answer: "x",
+        citations: [],
+        entities_used: [],
+        model: "openai/gpt-oss-20b",
+        used_context: false,
+        used_graph: false,
+        verification: {
+          verdict: "skipped",
+          groundedness_score: 0,
+          total_claims: 0,
+          supported_claims: 0,
+          unsupported_claims: [],
+          skip_reason: reason,
+        },
+      };
+    }
+
+    it("renders a green verified badge on full groundedness", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse(verifiedBody("verified"))),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      const badge = await screen.findByTestId("verification-badge");
+      expect(badge).toHaveTextContent(/verified/i);
+      expect(badge).toHaveTextContent(/100%/);
+    });
+
+    it("renders an amber partial badge with the unsupported-claims panel collapsed by default", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse(verifiedBody("partial"))),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      const badge = await screen.findByTestId("verification-badge");
+      expect(badge).toHaveTextContent(/partial/i);
+      // Panel exists but claims list is hidden until expanded.
+      const panel = screen.getByTestId("unsupported-claims-panel");
+      expect(panel).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("unsupported-claims-list"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("expanding the panel reveals each unsupported claim", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonResponse(
+            verifiedBody("unsupported", {
+              unsupported_claims: ["first bad claim", "second bad claim"],
+            }),
+          ),
+        ),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await screen.findByTestId("verification-badge");
+      await userEvent.click(
+        screen.getByRole("button", { name: /unsupported claim/i }),
+      );
+
+      const list = screen.getByTestId("unsupported-claims-list");
+      expect(within(list).getByText("first bad claim")).toBeInTheDocument();
+      expect(within(list).getByText("second bad claim")).toBeInTheDocument();
+    });
+
+    it("renders a muted 'not verified' badge and no panel when the verdict is skipped", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse(skippedBody("no context to verify against"))),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      const badge = await screen.findByTestId("verification-badge");
+      expect(badge).toHaveTextContent(/not verified/i);
+      expect(
+        screen.queryByTestId("unsupported-claims-panel"),
+      ).not.toBeInTheDocument();
+    });
+  });
 });

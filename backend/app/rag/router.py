@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.chat_workflow import run_chat
+from app.agents.verification import VerificationResult
 from app.auth.deps import get_current_user
 from app.auth.models import User
 from app.core.config import settings
@@ -18,6 +19,7 @@ from app.rag.schemas import (
     Citation,
     EntityUsed,
     GraphRelationEdge,
+    VerificationInfo,
 )
 
 log = logging.getLogger("mmap.rag")
@@ -26,6 +28,19 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+
+def _to_verification(result: VerificationResult | None) -> VerificationInfo:
+    if result is None:
+        return VerificationInfo(verdict="skipped", skip_reason="not run")
+    return VerificationInfo(
+        verdict=result.verdict,
+        groundedness_score=round(result.groundedness_score, 3),
+        total_claims=result.total_claims,
+        supported_claims=result.supported_claims,
+        unsupported_claims=list(result.unsupported_claims),
+        skip_reason=result.skip_reason,
+    )
 
 
 def _to_entities_used(facts: list[GraphFact]) -> list[EntityUsed]:
@@ -94,4 +109,5 @@ async def chat(
         model=state.get("model", settings.groq_reasoning_model),
         used_context=bool(state.get("used_context")),
         used_graph=bool(state.get("used_graph")),
+        verification=_to_verification(state.get("verification")),
     )

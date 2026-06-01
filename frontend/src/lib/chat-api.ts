@@ -25,6 +25,21 @@ export type ChatEntityUsed = {
   relations: ChatGraphRelationEdge[];
 };
 
+export type VerificationVerdict =
+  | "verified"
+  | "partial"
+  | "unsupported"
+  | "skipped";
+
+export type ChatVerification = {
+  verdict: VerificationVerdict;
+  groundedness_score: number;
+  total_claims: number;
+  supported_claims: number;
+  unsupported_claims: string[];
+  skip_reason: string;
+};
+
 export type ChatResponse = {
   answer: string;
   citations: ChatCitation[];
@@ -32,6 +47,7 @@ export type ChatResponse = {
   model: string;
   used_context: boolean;
   used_graph: boolean;
+  verification?: ChatVerification;
 };
 
 export type ChatRequest = {

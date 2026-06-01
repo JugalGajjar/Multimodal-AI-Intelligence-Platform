@@ -163,14 +163,58 @@ async def test_workflow_passes_top_k_and_document_ids_to_retrieve():
 async def test_compiled_workflow_executes_nodes_in_order():
     """Smoke check: building + invoking the StateGraph end-to-end works
     without LangGraph configuration mistakes (missing edges, etc.)."""
+    from app.agents.verification import VerificationResult
+
     chunks = [_chunk()]
     with (
         patch.object(wf, "retrieve", return_value=chunks),
         patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
         patch.object(wf, "chat_completion", new=AsyncMock(return_value="done")),
+        patch.object(
+            wf,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="verified", groundedness_score=1.0)
+            ),
+        ),
     ):
         compiled = wf.build_chat_workflow()
         final = await compiled.ainvoke({"query": "go", "user_id": uuid4(), "top_k": 3})
 
     assert final["answer"] == "done"
     assert final["chunks"] == chunks
+
+
+@pytest.mark.asyncio
+async def test_workflow_runs_verify_node_after_respond():
+    """The verify node must see the freshly-generated answer + the chunks
+    that retrieve produced. Whatever it returns ends up under `verification`."""
+    from app.agents.verification import VerificationResult
+
+    chunks = [_chunk("Qdrant is a vector DB")]
+    captured: dict = {}
+
+    async def fake_verify(*, answer, chunks, graph_facts):
+        captured["answer"] = answer
+        captured["chunks"] = chunks
+        return VerificationResult(
+            verdict="partial",
+            groundedness_score=0.5,
+            total_claims=2,
+            supported_claims=1,
+            unsupported_claims=["fabricated bit"],
+        )
+
+    with (
+        patch.object(wf, "retrieve", return_value=chunks),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "chat_completion", new=AsyncMock(return_value="Qdrant is great.")),
+        patch.object(wf, "verify_answer", new=fake_verify),
+    ):
+        state = await wf.run_chat(query="what?", user_id=uuid4())
+
+    assert captured["answer"] == "Qdrant is great."
+    assert captured["chunks"] == chunks
+    v = state["verification"]
+    assert v.verdict == "partial"
+    assert v.unsupported_claims == ["fabricated bit"]

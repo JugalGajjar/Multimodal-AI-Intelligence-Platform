@@ -2,11 +2,18 @@
 
 import { useMutation } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowUpRight,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Loader2,
   MessageSquareText,
   Network,
   SendHorizontal,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -28,6 +35,8 @@ import {
   sendChatQuery,
   type ChatCitation,
   type ChatResponse,
+  type ChatVerification,
+  type VerificationVerdict,
 } from "@/lib/chat-api";
 import { chatToGraphProps } from "@/lib/graph-from-chat";
 import { useAuthStore } from "@/store/auth";
@@ -156,11 +165,20 @@ function Answer({ response }: { response: ChatResponse }) {
             used graph
           </Badge>
         )}
+        {response.verification && (
+          <VerificationBadge verification={response.verification} />
+        )}
       </div>
 
       <div className="rounded-xl border border-border/60 bg-background/50 px-5 py-4 text-sm leading-relaxed">
         <p className="whitespace-pre-wrap">{response.answer}</p>
       </div>
+
+      {response.verification &&
+        response.verification.verdict !== "skipped" &&
+        response.verification.unsupported_claims.length > 0 && (
+          <UnsupportedClaimsPanel verification={response.verification} />
+        )}
 
       {response.citations.length > 0 && (
         <div className="space-y-2">
@@ -202,6 +220,136 @@ function Answer({ response }: { response: ChatResponse }) {
             Highlighted nodes are entities the answer mentions by name.
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+const VERDICT_STYLES: Record<
+  VerificationVerdict,
+  { label: string; className: string; Icon: typeof ShieldCheck }
+> = {
+  verified: {
+    label: "verified",
+    className: "bg-emerald-500/90 text-white hover:bg-emerald-500",
+    Icon: ShieldCheck,
+  },
+  partial: {
+    label: "partial support",
+    className: "bg-amber-500/90 text-white hover:bg-amber-500",
+    Icon: ShieldAlert,
+  },
+  unsupported: {
+    label: "unsupported",
+    className: "bg-red-500/90 text-white hover:bg-red-500",
+    Icon: ShieldAlert,
+  },
+  skipped: {
+    label: "not verified",
+    className: "",
+    Icon: ShieldQuestion,
+  },
+};
+
+function VerificationBadge({
+  verification,
+}: {
+  verification: ChatVerification;
+}) {
+  const v = verification.verdict;
+  const style = VERDICT_STYLES[v];
+  const Icon = style.Icon;
+  const pct = Math.round(verification.groundedness_score * 100);
+  const counts =
+    verification.total_claims > 0
+      ? ` · ${verification.supported_claims}/${verification.total_claims}`
+      : "";
+  const title =
+    v === "skipped"
+      ? verification.skip_reason || "verification skipped"
+      : `groundedness ${pct}%${counts}`;
+
+  if (v === "skipped") {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 text-muted-foreground"
+        title={title}
+        data-testid="verification-badge"
+      >
+        <Icon className="size-3" aria-hidden="true" />
+        not verified
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge
+      className={"gap-1 " + style.className}
+      title={title}
+      data-testid="verification-badge"
+    >
+      <Icon className="size-3" aria-hidden="true" />
+      {style.label}
+      {verification.total_claims > 0 && (
+        <span className="ml-0.5 opacity-90">· {pct}%</span>
+      )}
+    </Badge>
+  );
+}
+
+function UnsupportedClaimsPanel({
+  verification,
+}: {
+  verification: ChatVerification;
+}) {
+  const [open, setOpen] = useState(false);
+  const count = verification.unsupported_claims.length;
+
+  return (
+    <div
+      className="rounded-xl border border-amber-500/40 bg-amber-500/5"
+      data-testid="unsupported-claims-panel"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-xs font-medium"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2">
+          <AlertTriangle
+            className="size-3.5 text-amber-600 dark:text-amber-400"
+            aria-hidden="true"
+          />
+          <span>
+            {count} unsupported claim{count === 1 ? "" : "s"}
+          </span>
+          <span className="font-normal text-muted-foreground">
+            (not entailed by the cited context)
+          </span>
+        </span>
+        {open ? (
+          <ChevronUp className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        ) : (
+          <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        )}
+      </button>
+      {open && (
+        <ul
+          className="space-y-1.5 border-t border-amber-500/30 px-4 py-3 text-xs text-foreground/90"
+          data-testid="unsupported-claims-list"
+        >
+          {verification.unsupported_claims.map((c, i) => (
+            <li key={`${i}-${c.slice(0, 24)}`} className="flex gap-2">
+              <CheckCircle2
+                className="mt-0.5 size-3 shrink-0 rotate-180 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <span>{c}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

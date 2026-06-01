@@ -34,6 +34,26 @@ class EntityUsed(BaseModel):
     relations: list[GraphRelationEdge] = []
 
 
+class VerificationInfo(BaseModel):
+    """Groundedness verdict from the Phase 5.2 verification agent.
+
+    `verdict`:
+      verified    — every atomic claim is supported by the cited context.
+      partial     — at least one claim is unsupported but the score is above
+                    the partial threshold.
+      unsupported — the answer is mostly unsupported by the context.
+      skipped     — verification didn't run (disabled, no context, or LLM
+                    error). `skip_reason` carries the cause for debugging.
+    """
+
+    verdict: str = "skipped"
+    groundedness_score: float = 0.0
+    total_claims: int = 0
+    supported_claims: int = 0
+    unsupported_claims: list[str] = []
+    skip_reason: str = ""
+
+
 class ChatResponse(BaseModel):
     answer: str
     citations: list[Citation]
@@ -41,3 +61,4 @@ class ChatResponse(BaseModel):
     model: str
     used_context: bool
     used_graph: bool = False
+    verification: VerificationInfo = Field(default_factory=VerificationInfo)

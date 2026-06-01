@@ -17,6 +17,7 @@ from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
 
+from app.agents.verification import VerificationResult, verify_answer
 from app.core.config import settings
 from app.rag.graph_expansion import GraphFact, expand_with_graph
 from app.rag.groq_chat import chat_completion
@@ -52,6 +53,9 @@ class ChatState(TypedDict, total=False):
     # Filled by `respond`
     answer: str
     model: str
+
+    # Filled by `verify`
+    verification: VerificationResult
 
 
 async def _safe_expand(query: str, chunks, user_id) -> list[GraphFact]:
@@ -110,6 +114,21 @@ async def respond_node(state: ChatState) -> dict[str, Any]:
     }
 
 
+async def verify_node(state: ChatState) -> dict[str, Any]:
+    """Score the answer's groundedness against the cited context.
+
+    Best-effort: `verify_answer` already maps every failure mode (rate limit,
+    JSON parse error, disabled flag, no context) to a `skipped` verdict.
+    The chat response shouldn't fail just because verification couldn't run.
+    """
+    result = await verify_answer(
+        answer=state.get("answer", ""),
+        chunks=state.get("chunks") or [],
+        graph_facts=state.get("graph_facts") or [],
+    )
+    return {"verification": result}
+
+
 def build_chat_workflow():
     """Compile and return the chat StateGraph.
 
@@ -119,9 +138,11 @@ def build_chat_workflow():
     graph = StateGraph(ChatState)
     graph.add_node("retrieve", retrieve_node)
     graph.add_node("respond", respond_node)
+    graph.add_node("verify", verify_node)
     graph.add_edge(START, "retrieve")
     graph.add_edge("retrieve", "respond")
-    graph.add_edge("respond", END)
+    graph.add_edge("respond", "verify")
+    graph.add_edge("verify", END)
     return graph.compile()
 
 

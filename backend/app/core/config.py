@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     graph_max_hops: int = 2
     graph_max_facts_per_seed: int = 12
 
+    # Verification agent (Phase 5.2). When enabled, every answer is re-read
+    # against its citations + graph facts; unsupported claims are surfaced
+    # in the UI. Disable per-env to skip the extra LLM call.
+    verification_enabled: bool = True
+    verification_threshold_verified: float = 0.85
+    verification_threshold_partial: float = 0.5
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.backend_cors_origins.split(",") if o.strip()]
