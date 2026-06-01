@@ -1,18 +1,11 @@
-"""Expand retrieval with knowledge-graph facts the user has stored.
+"""Expand retrieval with graph facts about entities tied to this turn.
 
-Two complementary sources:
+Two sources, name-matches first:
+  1. Entity names that appear in the question or retrieved chunk text.
+  2. Entities tagged with a document_id from the retrieved chunks.
 
-1. **Name-matched** — case-insensitive substring match between the user's
-   stored entity names and a haystack made of (query + retrieved chunk text).
-   Highest priority: if the question or evidence literally mentions an entity,
-   we want it.
-
-2. **Document-scoped** — entities tagged with at least one `document_id` from
-   the retrieved chunks. Surfaces graph context tied to the evidence even
-   when the question doesn't say the entity name out loud.
-
-The union (name-matches first) is deduped, capped, and resolved to multi-hop
-facts. Closer hops are preferred when the per-seed cap drops the long chains.
+The union is deduped, capped, and resolved to multi-hop facts via the
+shortest path; closer hops win when the per-seed cap drops long chains.
 """
 
 from __future__ import annotations
@@ -149,20 +142,8 @@ async def expand_with_graph(
     max_hops: int | None = None,
     max_facts_per_seed: int | None = None,
 ) -> list[GraphFact]:
-    """Return GraphFact objects for entities tied to this turn.
-
-    Sources, in priority order:
-      1. Entity names that literally appear in the user's question or in the
-         retrieved chunk text.
-      2. Entity names attached to documents that the vector search returned
-         (graph context for the evidence).
-
-    Returns [] when the user has no graph yet OR neither source yields any
-    entity tied to the current turn.
-
-    `max_hops` defaults to `settings.graph_max_hops` (typically 2). Pass `1`
-    to force the prior single-hop behaviour.
-    """
+    # Returns [] when the user has no graph or neither source surfaces an
+    # entity tied to this turn. `max_hops` defaults to settings.graph_max_hops.
     hops = _clamp_hops(max_hops if max_hops is not None else settings.graph_max_hops)
     per_seed = (
         max_facts_per_seed if max_facts_per_seed is not None else settings.graph_max_facts_per_seed

@@ -1,9 +1,4 @@
-"""Unit tests for the LangGraph chat workflow (Phase 5.1).
-
-These cover behaviour, not LangGraph internals — we verify that the workflow
-threads inputs through the right nodes, returns a state shape the FastAPI
-layer can consume, and lets upstream errors propagate.
-"""
+"""Unit tests for the LangGraph chat workflow."""
 
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4

@@ -1,17 +1,11 @@
-"""OCR engines. RapidOCR (ONNX) is primary; Tesseract is fallback.
-
-RapidOCR ships the PaddleOCR-trained models via ONNX Runtime — same model
-lineage as the plan's PaddleOCR primary, but with a slim runtime that works
-reliably on arm64. Heavy imports are wrapped in try/except so the module is
-importable in environments missing one or both engines.
-"""
+"""OCR engines: RapidOCR primary, Tesseract fallback."""
 
 import logging
 from io import BytesIO
 
 log = logging.getLogger("mmap.ocr")
 
-# --- RapidOCR (primary) -------------------------------------------------
+# Heavy imports are guarded so the module loads in either container.
 try:
     from rapidocr import RapidOCR  # type: ignore[import-not-found]
 
@@ -20,7 +14,6 @@ except Exception as _rapid_err:  # noqa: BLE001
     RAPIDOCR_AVAILABLE = False
     log.warning("RapidOCR unavailable: %r", _rapid_err)
 
-# --- Tesseract (fallback) -----------------------------------------------
 try:
     import pytesseract  # type: ignore[import-not-found]
     from PIL import Image
@@ -49,8 +42,7 @@ def ocr_image_bytes_with_rapidocr(image_bytes: bytes) -> str:
     arr = np.array(pil)
     result = _get_rapid()(arr)
 
-    # rapidocr returns an object with `.txts` (tuple of strings) or None when
-    # nothing was detected.
+    # `.txts` is a tuple of strings; result is None when nothing was detected.
     if result is None:
         return ""
     txts = getattr(result, "txts", None) or ()
@@ -63,7 +55,6 @@ def ocr_image_bytes_with_tesseract(image_bytes: bytes) -> str:
 
 
 def ocr_image_bytes(image_bytes: bytes) -> str:
-    """Try RapidOCR first, fall back to Tesseract."""
     if RAPIDOCR_AVAILABLE:
         try:
             text = ocr_image_bytes_with_rapidocr(image_bytes)

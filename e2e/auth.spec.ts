@@ -7,7 +7,7 @@ function uniqueEmail(): string {
 // Next.js adds <div role="alert" id="__next-route-announcer__"> on every page,
 // which makes getByRole("alert") ambiguous. Match visible error text directly.
 
-test.describe("Phase 1.5 — auth: register → dashboard → logout → login", () => {
+test.describe("auth: register → dashboard → logout → login", () => {
   test("/dashboard redirects to /login when not authenticated", async ({
     page,
   }) => {

@@ -10,8 +10,6 @@ type NavItem = {
   href: string;
   label: string;
   Icon: typeof LayoutDashboard;
-  // True when the current pathname starts with `href` (treats `/dashboard/...`
-  // as still being under "Dashboard" unless a more-specific item also matches).
   match?: (pathname: string) => boolean;
 };
 

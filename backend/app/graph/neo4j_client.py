@@ -17,7 +17,6 @@ _driver: Any = None
 
 
 async def get_driver():
-    """Process-wide async driver singleton."""
     global _driver
     if _driver is None:
         _driver = AsyncGraphDatabase.driver(
@@ -130,7 +129,7 @@ async def list_user_entities(user_id: str, *, limit: int = 200) -> list[dict[str
 async def list_relationships_for_entity(
     user_id: str, entity_name: str, *, limit: int = 50
 ) -> list[dict[str, Any]]:
-    """1-hop neighbours of `entity_name`, in either direction."""
+    # 1-hop neighbours in either direction.
     driver = await get_driver()
     async with driver.session() as session:
         result = await session.run(
@@ -148,13 +147,8 @@ async def list_relationships_for_entity(
 async def get_graph_snapshot(
     user_id: str, *, limit_nodes: int = 500, limit_links: int = 2000
 ) -> dict[str, list[dict[str, Any]]]:
-    """Return a {nodes, links} snapshot of a user's full graph.
-
-    `nodes` carry display metadata (type, description, document_ids).
-    `links` are directed RELATES_TO edges between included nodes. We only
-    return edges where BOTH endpoints are in the returned node set so the
-    frontend doesn't have to handle dangling refs.
-    """
+    # Returns only edges where both endpoints are in the node set, so the
+    # frontend never sees dangling refs.
     driver = await get_driver()
     async with driver.session() as session:
         nodes_result = await session.run(
@@ -197,10 +191,7 @@ async def get_graph_snapshot(
 async def list_entity_names_for_documents(
     user_id: str, document_ids: list[str], *, limit: int = 200
 ) -> list[str]:
-    """Names of entities tagged with at least one of the given document_ids.
-
-    Order: most-recently-seen first, capped by `limit`.
-    """
+    # Most-recently-seen first; capped by `limit`.
     if not document_ids:
         return []
     driver = await get_driver()
@@ -224,10 +215,8 @@ _MAX_SUPPORTED_HOPS = 3
 
 
 def _build_facts_cypher(max_hops: int) -> str:
-    """Cypher pattern's `*1..N` requires a literal integer, so we template it.
-
-    We validate `max_hops` in Python before formatting so this is safe.
-    """
+    # Cypher's *1..N requires a literal int, so we template it; validated
+    # against _MAX_SUPPORTED_HOPS to keep the format string safe.
     if max_hops < 1 or max_hops > _MAX_SUPPORTED_HOPS:
         raise ValueError(f"max_hops must be in 1..{_MAX_SUPPORTED_HOPS}, got {max_hops}")
     return f"""
@@ -267,26 +256,9 @@ async def get_entity_facts(
     max_hops: int = 1,
     max_facts_per_seed: int = 12,
 ) -> list[dict[str, Any]]:
-    """For each entity in `names` belonging to `user_id`, return the entity
-    plus its reachable neighbours within `max_hops`.
-
-    For each neighbour we keep the SHORTEST path's relation chain; closer hops
-    are preferred so the per-seed cap can drop the long-distance noise first.
-
-    Case-insensitive name matching; the canonical stored name is returned.
-    Shape:
-        {
-          "name": str, "type": str, "description": str,
-          "relations": [
-            {
-              "other": str, "other_type": str, "other_description": str,
-              "distance": int,                # 1..max_hops
-              "relation_chain": [str, ...],   # one per edge along the path
-            },
-            ...
-          ]
-        }
-    """
+    # Keeps the shortest path per neighbour so the per-seed cap drops the
+    # long-distance noise first. Name matching is case-insensitive; returned
+    # names are the canonical stored form.
     if not names:
         return []
 
@@ -305,8 +277,7 @@ async def get_entity_facts(
 
 
 async def delete_document_traces(user_id: str, document_id: str) -> None:
-    """When a document is deleted, prune it from entity/edge document_ids and
-    delete entities/edges that no longer point to any document."""
+    # Prune doc_id from entities/edges and delete those left orphaned.
     driver = await get_driver()
     async with driver.session() as session:
         await session.run(
@@ -318,7 +289,7 @@ async def delete_document_traces(user_id: str, document_id: str) -> None:
             user_id=user_id,
             doc_id=document_id,
         )
-        # Also prune doc_id from any surviving relationships
+        # Prune doc_id from surviving relationships too.
         await session.run(
             "MATCH ()-[r:RELATES_TO]->() "
             "WHERE $doc_id IN coalesce(r.document_ids, []) "

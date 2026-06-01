@@ -14,15 +14,13 @@ async function registerAndSignIn(page: import("@playwright/test").Page) {
   await page.waitForURL("**/dashboard");
 }
 
-test.describe("Phase 2.3 — embeddings + chunk count", () => {
+test.describe("embeddings + chunk count", () => {
   test("uploaded text shows N chunks after processing", async ({ page }) => {
     await registerAndSignIn(page);
 
     // Long enough to produce multiple chunks (default chunk_size=500)
     const body =
-      "Phase 2.3 embeddings end-to-end. " +
-      "The quick brown fox jumps over the lazy dog. ".repeat(40) +
-      "End.";
+      "The quick brown fox jumps over the lazy dog. ".repeat(40) + "End.";
 
     await page.getByLabel("File", { exact: true }).setInputFiles({
       name: "phase23.txt",

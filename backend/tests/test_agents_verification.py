@@ -1,4 +1,4 @@
-"""Unit tests for the Phase 5.2 verification agent."""
+"""Unit tests for the verification agent."""
 
 import json
 from unittest.mock import AsyncMock, patch

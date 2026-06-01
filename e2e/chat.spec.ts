@@ -14,7 +14,7 @@ async function registerAndSignIn(page: import("@playwright/test").Page) {
   await page.waitForURL("**/dashboard");
 }
 
-test.describe("Phase 2.5 — frontend chat UI", () => {
+test.describe("frontend chat UI", () => {
   test("chat panel posts a query and renders answer + citations", async ({
     page,
   }) => {
@@ -109,7 +109,7 @@ test.describe("Phase 2.5 — frontend chat UI", () => {
   });
 });
 
-test.describe("Phase 4.3c — inline knowledge graph in chat panel", () => {
+test.describe("inline knowledge graph in chat panel", () => {
   test("renders inline graph + 'used graph' badge + Explore-full-graph link", async ({
     page,
   }) => {

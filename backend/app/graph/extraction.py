@@ -1,13 +1,9 @@
-"""LLM-driven entity & relationship extraction (Groq JSON mode).
+"""LLM-driven entity & relationship extraction with backoff.
 
-Retry behavior:
-  - 429 with a per-minute / per-second hint (`try again in <=30s`): sleep and
-    retry, up to MAX_RETRIES total attempts.
-  - 429 with a long hint (per-day cap): bail immediately — the caller can use
-    the reindex endpoint once the cap resets.
-  - 400 `json_validate_failed`: retry once. The model is non-deterministic and
-    a second attempt at the same input often succeeds.
-  - Anything else: bail (caller falls back to an empty result).
+Retry rules:
+  429 with hint ≤ 30s  → sleep + retry (per-minute cap), up to MAX_RETRIES.
+  429 with hint > 30s  → bail (daily cap; worker shouldn't block).
+  400 json_validate    → retry once (model is non-deterministic).
 """
 
 from __future__ import annotations
@@ -51,13 +47,12 @@ SYSTEM_PROMPT = (
 MAX_INPUT_CHARS = 12_000
 MAX_RETRIES = 3
 RETRY_BACKOFF_CAP_SECONDS = 30.0
-# Anything longer than this in the "try again in X" hint is treated as a
-# daily-cap that's not worth blocking on inside a worker job.
+# Wait hints longer than this are treated as a daily cap.
 RETRY_GIVE_UP_SECONDS = 30.0
 
 
+# Groq messages: "Please try again in 4.8s" / "in 17.3325s" / "in 14m20.112s"
 _RETRY_AFTER_PATTERNS = (
-    # Groq messages: "Please try again in 4.8s" / "in 17.3325s" / "in 14m20.112s"
     re.compile(r"try again in (\d+)m([\d.]+)s", re.IGNORECASE),
     re.compile(r"try again in ([\d.]+)s", re.IGNORECASE),
     re.compile(r"try again in ([\d.]+)ms", re.IGNORECASE),
@@ -65,7 +60,6 @@ _RETRY_AFTER_PATTERNS = (
 
 
 def _parse_retry_after(body: object) -> float | None:
-    """Extract Groq's wait hint (in seconds) from an error body. None if absent."""
     msg = _error_message(body)
     if not msg:
         return None
@@ -84,7 +78,6 @@ def _parse_retry_after(body: object) -> float | None:
 
 
 def _error_message(body: object) -> str:
-    """Best-effort string extraction from Groq's error body."""
     if isinstance(body, str):
         return body
     if isinstance(body, dict):
@@ -120,9 +113,7 @@ _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IG
 
 
 def _extract_json_object(raw: str) -> str | None:
-    """Lift the first JSON object out of `raw`, tolerating markdown fences and
-    a leading sentence of preamble. Returns None if no object-shaped substring
-    can be found."""
+    # Lift the first JSON object out, tolerating fences and prose preamble.
     if not raw:
         return None
 
@@ -130,8 +121,7 @@ def _extract_json_object(raw: str) -> str | None:
     if fenced:
         return fenced.group(1)
 
-    # Walk from the first '{' to its matching '}', counting nesting and
-    # respecting string literals so a `"}"` inside a value doesn't fool us.
+    # Walk braces while respecting string literals so a `"}"` doesn't fool us.
     start = raw.find("{")
     if start < 0:
         return None
@@ -164,8 +154,6 @@ def _parse_response(raw: str) -> ExtractionResult:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        # The model emitted preamble / fences / trailing prose around its JSON.
-        # Try to recover by locating the first JSON object substring.
         recovered = _extract_json_object(raw)
         if recovered is None:
             log.warning("entity extraction returned non-JSON: %r", raw[:200])
@@ -186,12 +174,8 @@ def _parse_response(raw: str) -> ExtractionResult:
 
 
 async def extract_entities(text: str) -> ExtractionResult:
-    """Call Groq with JSON mode and return a normalized ExtractionResult.
-
-    Raises `GroqChatError` on upstream issues that can't be recovered from
-    via retry (e.g. daily-cap 429, missing key, server error). Returns an
-    empty `ExtractionResult` when the model returns garbage we can't parse.
-    """
+    # Raises GroqChatError on unrecoverable upstream issues. Returns an empty
+    # result when the model returns garbage we can't parse.
     if not text or not text.strip():
         return ExtractionResult(entities=[], relationships=[])
 
@@ -228,8 +212,7 @@ async def extract_entities(text: str) -> ExtractionResult:
 
 
 async def safe_extract_entities(text: str) -> ExtractionResult:
-    """Same as extract_entities but maps upstream failures to an empty result
-    so the surrounding worker pipeline never aborts because of extraction."""
+    # Maps upstream failures to an empty result so the worker never aborts.
     try:
         return await extract_entities(text)
     except GroqChatError as exc:

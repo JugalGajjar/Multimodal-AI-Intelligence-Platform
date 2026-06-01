@@ -7,9 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { colorForEntityType, ENTITY_TYPE_LEGEND } from "./entity-colors";
 import type { GraphLinkData, GraphNodeData } from "@/lib/graph-api";
 
-// `react-force-graph-2d` draws to canvas and requires `window` — exclude it
-// from server rendering. Keep this *outside* the component body so the dynamic
-// import is only resolved once per module load, not per render.
+// Canvas-based and `window`-dependent — skip SSR. Defined at module scope so
+// the dynamic import resolves once, not per render.
 const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
   ssr: false,
   loading: () => (
@@ -23,17 +22,16 @@ const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
   ),
 });
 
+// react-force-graph mutates these fields in place during simulation.
 type ForceNode = GraphNodeData & {
   color: string;
   highlighted: boolean;
-  // Force-graph mutates these in place during simulation.
   x?: number;
   y?: number;
 };
 
 type ForceLink = GraphLinkData & {
   id: string;
-  // After the simulation runs, source/target are mutated to node references.
   source: string | ForceNode;
   target: string | ForceNode;
 };
@@ -48,15 +46,11 @@ export type KnowledgeGraphProps = {
   showLegend?: boolean;
 };
 
-// Tuned for legibility on dense graphs: smaller default nodes with a slightly
-// bigger ring around highlighted ones, and labels that scale with zoom so they
-// don't pile up at fit-to-screen.
 const BASE_RADIUS = 4;
 const HIGHLIGHT_RADIUS = 6;
 const LABEL_BASE_SIZE_PX = 11;
 const LINK_LABEL_BASE_SIZE_PX = 9;
-// Below this canvas zoom level we hide labels to keep dense graphs readable
-// when fully zoomed out.
+// Labels appear once zoom passes this, so dense graphs stay readable at fit.
 const LABEL_MIN_SCALE = 1.1;
 
 function labelColors(): { fill: string; stroke: string } {
@@ -125,8 +119,7 @@ export function KnowledgeGraph({
               ? `${node.name} — ${node.description}`
               : node.name;
           }}
-          // We do the painting ourselves (circle + label). `replace` mode means
-          // force-graph won't draw the default circle on top of ours.
+          // `replace` mode skips force-graph's default circle so our paint wins.
           nodeCanvasObjectMode={() => "replace"}
           nodeCanvasObject={(rawNode, ctx, globalScale) => {
             const node = rawNode as unknown as ForceNode;
@@ -134,13 +127,11 @@ export function KnowledgeGraph({
 
             const radius = node.highlighted ? HIGHLIGHT_RADIUS : BASE_RADIUS;
 
-            // Circle fill
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
             ctx.fillStyle = node.color;
             ctx.fill();
 
-            // Highlighted ring
             if (node.highlighted) {
               ctx.lineWidth = 1.5 / globalScale;
               ctx.strokeStyle = node.color;
@@ -151,8 +142,7 @@ export function KnowledgeGraph({
               ctx.globalAlpha = 1;
             }
 
-            // Label — always shown when highlighted; otherwise gated by zoom
-            // so dense graphs stay legible at fit-to-screen.
+            // Highlighted nodes are always labelled; others wait for zoom.
             if (!node.highlighted && globalScale < LABEL_MIN_SCALE) return;
 
             const fontSize = LABEL_BASE_SIZE_PX / globalScale;
@@ -162,15 +152,14 @@ export function KnowledgeGraph({
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
             const { fill, stroke } = labelColors();
-            // Stroke first as an outline for legibility over edges/other nodes.
+            // Stroke first as an outline for legibility over edges/neighbours.
             ctx.lineWidth = 3 / globalScale;
             ctx.strokeStyle = stroke;
             ctx.strokeText(node.name, node.x, node.y + radius + 2);
             ctx.fillStyle = fill;
             ctx.fillText(node.name, node.x, node.y + radius + 2);
           }}
-          // Keep the default pointer hit area roughly the same as the visible
-          // circle so clicks still register on the small nodes.
+          // Pointer hit area tracks the visible circle (plus a small halo).
           nodePointerAreaPaint={(rawNode, color, ctx) => {
             const node = rawNode as unknown as ForceNode;
             if (typeof node.x !== "number" || typeof node.y !== "number") return;
@@ -198,8 +187,7 @@ export function KnowledgeGraph({
           }}
           linkDirectionalArrowLength={3}
           linkDirectionalArrowRelPos={0.92}
-          // Draw the relation label centered on the edge, AFTER the link line
-          // so the label sits on top.
+          // `after` draws on top of the default link line.
           linkCanvasObjectMode={() => "after"}
           linkCanvasObject={(rawLink, ctx, globalScale) => {
             if (globalScale < LABEL_MIN_SCALE) return;

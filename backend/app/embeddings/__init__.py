@@ -1,10 +1,4 @@
-"""Local embeddings via sentence-transformers.
-
-`BAAI/bge-small-en-v1.5` → 384-dim float32 vectors. Singleton model, loaded
-on first call. The sentence-transformers import is lazy so this module is
-safe to import in environments where the package isn't installed yet
-(empty-input path still works).
-"""
+"""Local embeddings via sentence-transformers (BAAI/bge-small-en-v1.5)."""
 
 from threading import Lock
 
@@ -29,7 +23,7 @@ def get_embedding_model():
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embed a batch of texts; returns float32 lists of length EMBEDDING_DIM."""
+    # Each vector has length EMBEDDING_DIM and is L2-normalized.
     if not texts:
         return []
     model = get_embedding_model()
@@ -43,5 +37,4 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 def embed_query(text: str) -> list[float]:
-    """Convenience: embed a single query string and return one vector."""
     return embed_texts([text])[0]

@@ -305,7 +305,7 @@ describe("<ChatPanel />", () => {
     });
   });
 
-  describe("verification badge (Phase 5.2)", () => {
+  describe("verification badge", () => {
     function verifiedBody(verdict: "verified" | "partial" | "unsupported", extras: object = {}) {
       return {
         answer: "Some answer.",

@@ -1,8 +1,4 @@
-/**
- * Type → palette. Picked from Tailwind 500 swatches so contrast holds
- * on both light and dark backgrounds, and adjacent types are visually
- * distinct without clashing.
- */
+// Tailwind 500 swatches; readable on both light and dark backgrounds.
 export const ENTITY_TYPE_COLORS: Record<string, string> = {
   Person: "#f97316", // orange-500
   Organization: "#a855f7", // purple-500

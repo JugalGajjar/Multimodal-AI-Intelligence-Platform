@@ -1,9 +1,4 @@
-"""High-level extraction pipeline: bytes + mime → plain text.
-
-Image inputs run OCR (PaddleOCR / Tesseract) **and** vision-language
-description (OpenRouter Qwen-style model) concurrently and combine both
-outputs. Audio runs through Groq Whisper. Text is decoded directly.
-"""
+"""Extract plain text from uploaded bytes by mime type."""
 
 import asyncio
 import logging
@@ -18,7 +13,6 @@ AUDIO_MIME_PREFIXES = ("audio/",)
 
 
 def decode_text_bytes(data: bytes) -> str:
-    """Decode a text/* upload, tolerating non-UTF-8 with a replacement strategy."""
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
@@ -26,7 +20,7 @@ def decode_text_bytes(data: bytes) -> str:
 
 
 def extract_text_from_pdf(data: bytes) -> str:
-    """Rasterize each PDF page and OCR it. Synchronous; CPU-heavy."""
+    # Rasterize each page then OCR. Synchronous; CPU-heavy.
     from pdf2image import convert_from_bytes  # type: ignore[import-not-found]
 
     from app.workers.ocr.engines import ocr_image_bytes
@@ -52,8 +46,7 @@ _AUDIO_MIME_TO_EXT: dict[str, str] = {
 
 
 async def _safe_describe_image(data: bytes, content_type: str) -> str:
-    """Call the vision model; degrade to empty string on any vision error so
-    the OCR text alone can still flow through the rest of the pipeline."""
+    # Degrade to empty string on vision errors so OCR text alone can flow through.
     from app.vision.describe import VisionError, describe_image_bytes
 
     try:
@@ -64,7 +57,6 @@ async def _safe_describe_image(data: bytes, content_type: str) -> str:
 
 
 async def _extract_from_image(data: bytes, content_type: str) -> str:
-    """OCR + vision in parallel, then join the labelled sections."""
     from app.workers.ocr.engines import ocr_image_bytes
 
     ocr_text, vision_text = await asyncio.gather(
@@ -86,11 +78,8 @@ async def extract_text_from_bytes(
     *,
     filename: str | None = None,
 ) -> str:
-    """Dispatch to the right extractor based on MIME type.
-
-    `filename` is used by some downstream services (Groq Whisper validates
-    the extension); we fall back to a MIME-derived synthetic filename.
-    """
+    # `filename` is forwarded to Groq Whisper (it validates the extension);
+    # we synthesize one from the mime when the upload didn't include it.
     mime = (content_type or "").lower().split(";", 1)[0].strip()
 
     if mime.startswith(TEXT_MIME_PREFIXES):

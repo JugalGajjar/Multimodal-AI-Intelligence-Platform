@@ -1,4 +1,4 @@
-"""HTTP surface for the knowledge graph (entities + 1-hop neighbours)."""
+"""HTTP surface for the knowledge graph."""
 
 from typing import Annotated
 
@@ -43,7 +43,9 @@ class NeighbourListResponse(BaseModel):
 
 
 class GraphNode(BaseModel):
-    id: str  # canonical entity name; stable across snapshots for layout reuse
+    # `id` is the canonical entity name — stable across snapshots so the
+    # force-directed layout can reuse positions on refetch.
+    id: str
     name: str
     type: str = "Concept"
     description: str = ""
@@ -87,7 +89,6 @@ async def get_snapshot(
     limit_nodes: int = Query(default=500, ge=1, le=2000),
     limit_links: int = Query(default=2000, ge=1, le=10000),
 ) -> GraphSnapshotResponse:
-    """Full graph for the current user, suitable for a force-directed UI."""
     data = await get_graph_snapshot(
         str(current_user.id),
         limit_nodes=limit_nodes,

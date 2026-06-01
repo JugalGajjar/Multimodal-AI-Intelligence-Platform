@@ -1,13 +1,4 @@
-"""Phase 5.1 — LangGraph chat workflow.
-
-A 2-node graph that wraps the prior inline `/chat` flow:
-
-    START → retrieve → respond → END
-
-Behaviour matches the previous router exactly; the only difference is that
-state now flows through a LangGraph `StateGraph`, which gives subsequent
-sub-phases (verification, summarization, routing) a clean insertion point.
-"""
+"""LangGraph chat workflow: retrieve → respond → verify."""
 
 from __future__ import annotations
 
@@ -32,34 +23,25 @@ log = logging.getLogger("mmap.agents.chat")
 
 
 class ChatState(TypedDict, total=False):
-    """Mutable state threaded through the chat graph.
-
-    `total=False` so node returns can be partial updates — LangGraph merges
-    each node's return dict into the running state.
-    """
-
-    # Inputs
+    # total=False lets each node return a partial update; LangGraph merges them.
     query: str
     user_id: UUID
     top_k: int
     document_ids: list[UUID] | None
 
-    # Filled by `retrieve`
     chunks: list[RetrievedChunk]
     graph_facts: list[GraphFact]
     used_context: bool
     used_graph: bool
 
-    # Filled by `respond`
     answer: str
     model: str
 
-    # Filled by `verify`
     verification: VerificationResult
 
 
 async def _safe_expand(query: str, chunks, user_id) -> list[GraphFact]:
-    """Graph expansion is best-effort. Neo4j down or empty graph → []."""
+    # Graph expansion is best-effort; Neo4j down should not break chat.
     try:
         return await expand_with_graph(query=query, chunks=chunks, user_id=user_id)
     except Exception as exc:  # noqa: BLE001
@@ -68,11 +50,6 @@ async def _safe_expand(query: str, chunks, user_id) -> list[GraphFact]:
 
 
 async def retrieve_node(state: ChatState) -> dict[str, Any]:
-    """Run vector retrieval + best-effort graph expansion.
-
-    Synchronously calls `retrieve` (CPU-bound embedding + Qdrant search) and
-    awaits the async graph expansion. Returns a partial state update.
-    """
     chunks = retrieve(
         query=state["query"],
         user_id=state["user_id"],
@@ -90,11 +67,7 @@ async def retrieve_node(state: ChatState) -> dict[str, Any]:
 
 
 async def respond_node(state: ChatState) -> dict[str, Any]:
-    """Build the prompt from the retrieved state and call the LLM.
-
-    Lets `GroqChatError` propagate so the FastAPI surface can map upstream
-    status codes back to the client (rate-limits, missing key, etc.).
-    """
+    # Lets GroqChatError propagate so the router can map upstream status codes.
     chunks = state.get("chunks") or []
     graph_facts = state.get("graph_facts") or []
 
@@ -115,12 +88,8 @@ async def respond_node(state: ChatState) -> dict[str, Any]:
 
 
 async def verify_node(state: ChatState) -> dict[str, Any]:
-    """Score the answer's groundedness against the cited context.
-
-    Best-effort: `verify_answer` already maps every failure mode (rate limit,
-    JSON parse error, disabled flag, no context) to a `skipped` verdict.
-    The chat response shouldn't fail just because verification couldn't run.
-    """
+    # verify_answer maps every failure mode to a `skipped` verdict, so the
+    # chat response never fails because of verification.
     result = await verify_answer(
         answer=state.get("answer", ""),
         chunks=state.get("chunks") or [],
@@ -130,11 +99,6 @@ async def verify_node(state: ChatState) -> dict[str, Any]:
 
 
 def build_chat_workflow():
-    """Compile and return the chat StateGraph.
-
-    Safe to cache at module load — the compiled graph is stateless across
-    invocations; per-request state lives in `ChatState`.
-    """
     graph = StateGraph(ChatState)
     graph.add_node("retrieve", retrieve_node)
     graph.add_node("respond", respond_node)
@@ -146,9 +110,8 @@ def build_chat_workflow():
     return graph.compile()
 
 
-# A single compiled graph reused across requests. Tests that need to swap the
-# nodes (e.g. by patching `app.agents.chat_workflow.chat_completion`) work
-# because the nodes resolve the patched symbols at call time, not compile time.
+# Compiled once at import. Tests patch module-level symbols (chat_completion,
+# verify_answer, etc.); nodes resolve them at call time so patches still hit.
 chat_workflow = build_chat_workflow()
 
 
@@ -159,10 +122,6 @@ async def run_chat(
     top_k: int = 5,
     document_ids: list[UUID] | None = None,
 ) -> ChatState:
-    """Convenience entry point for the FastAPI router.
-
-    Returns the final state dict containing answer, chunks, graph_facts, etc.
-    """
     initial: ChatState = {
         "query": query,
         "user_id": user_id,

@@ -26,7 +26,6 @@ _FILENAME_DUPDOTS = re.compile(r"\.{2,}")
 
 
 def sanitize_filename(filename: str | None, fallback: str = "upload") -> str:
-    """Strip path components and unsafe characters from an uploaded filename."""
     if not filename:
         return fallback
 

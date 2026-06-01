@@ -1,10 +1,4 @@
-"""Vision-language description of an image via OpenRouter.
-
-Used at ingestion time to add semantic understanding (diagrams, UI screenshots,
-charts) on top of raw OCR text. Falls back to a clear "vision-unavailable"
-marker when the upstream model errors out so the rest of the pipeline still
-runs (OCR text alone is still useful).
-"""
+"""Vision-language description of an image via OpenRouter."""
 
 import base64
 import logging
@@ -23,7 +17,7 @@ VISION_PROMPT = (
 
 
 class VisionError(Exception):
-    """Raised when the vision model can't be reached."""
+    pass
 
 
 def _data_url(data: bytes, content_type: str) -> str:
@@ -33,10 +27,6 @@ def _data_url(data: bytes, content_type: str) -> str:
 
 
 async def describe_image_bytes(data: bytes, content_type: str) -> str:
-    """Send the image to the configured OpenRouter vision model.
-
-    Raises VisionError if the key is missing or upstream returns an error.
-    """
     if not settings.openrouter_api_key:
         raise VisionError("OPENROUTER_API_KEY not configured")
 

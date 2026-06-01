@@ -46,7 +46,7 @@ function filterBySearch(
       .map((n) => n.id),
   );
 
-  // Pull in immediate neighbours of matched nodes (one hop).
+  // Pull in 1-hop neighbours of matched nodes.
   const expanded = new Set(directMatches);
   for (const link of full.links) {
     if (directMatches.has(link.source)) expanded.add(link.target);

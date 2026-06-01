@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test.describe("Phase 1 smoke — landing page + backend integration", () => {
+test.describe("landing page + backend smoke", () => {
   test("renders the hero + brand mark", async ({ page }) => {
     await page.goto("/");
 

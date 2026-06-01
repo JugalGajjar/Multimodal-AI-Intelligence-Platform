@@ -63,21 +63,18 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_whisper_model: str = "whisper-large-v3-turbo"
     groq_reasoning_model: str = "openai/gpt-oss-20b"
-    # Extraction needs strict JSON output over noisy PDF/OCR text. The default
-    # reasoning model (gpt-oss-20b) is unreliable under Groq's json_object
-    # response_format on that input; llama-3.3-70b handles it cleanly.
+    # gpt-oss-20b is unreliable under json_object response_format on noisy
+    # OCR text; llama-3.3-70b handles structured output cleanly.
     groq_extraction_model: str = "llama-3.3-70b-versatile"
 
-    # Knowledge-graph expansion knobs.
-    # `graph_max_hops` controls how far we walk from each seed entity (1, 2 or
-    # 3). `graph_max_facts_per_seed` caps the total fact count returned per
-    # seed regardless of depth — closer hops are preferred when capping.
+    # Knowledge-graph expansion. `graph_max_hops` is clamped to 1..3.
+    # `graph_max_facts_per_seed` caps facts per seed regardless of depth —
+    # closer hops are preferred when capping.
     graph_max_hops: int = 2
     graph_max_facts_per_seed: int = 12
 
-    # Verification agent (Phase 5.2). When enabled, every answer is re-read
-    # against its citations + graph facts; unsupported claims are surfaced
-    # in the UI. Disable per-env to skip the extra LLM call.
+    # Verification scores each answer against its context. Disable to skip
+    # the extra LLM call.
     verification_enabled: bool = True
     verification_threshold_verified: float = 0.85
     verification_threshold_partial: float = 0.5

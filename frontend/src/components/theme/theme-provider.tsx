@@ -37,9 +37,8 @@ function applyResolvedTheme(resolved: ResolvedTheme) {
   root.style.colorScheme = resolved;
 }
 
-// `useSystemTheme` subscribes to the OS-level dark-mode preference without
-// triggering set-state-in-effect. It returns "light" on the server so SSR
-// markup stays stable until the inline THEME_INIT_SCRIPT corrects the class.
+// Subscribes to the OS dark-mode preference via useSyncExternalStore so
+// state stays derived and SSR markup is deterministic.
 function subscribeSystemTheme(callback: () => void): () => void {
   if (typeof window === "undefined") return () => {};
   const mql = window.matchMedia("(prefers-color-scheme: dark)");
@@ -71,8 +70,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const systemTheme = useSystemTheme();
   const resolvedTheme: ResolvedTheme = theme === "system" ? systemTheme : theme;
 
-  // Single side-effect: mirror the resolved theme into the DOM. The state
-  // itself is derived during render so there's no setState-in-effect.
+  // Mirror the resolved theme into the DOM; resolvedTheme is derived above.
   useEffect(() => {
     applyResolvedTheme(resolvedTheme);
   }, [resolvedTheme]);
@@ -81,7 +79,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
     } catch {
-      // localStorage may be unavailable (private mode); fall through.
+      // localStorage may be unavailable (private mode).
     }
     setThemeState(next);
   }, []);
@@ -99,10 +97,8 @@ export function useTheme(): ThemeContextValue {
   return ctx;
 }
 
-/**
- * Inline script that sets the `.dark` class on <html> before React hydrates,
- * eliminating the flash-of-wrong-theme. Inject this into <head>.
- */
+// Inject into <head> to set the `.dark` class before hydration and avoid
+// flash-of-wrong-theme.
 export const THEME_INIT_SCRIPT = `
 (function() {
   try {

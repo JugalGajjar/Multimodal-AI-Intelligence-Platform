@@ -107,9 +107,8 @@ def test_text_endpoint_404_for_other_users_doc(http, auth):
 
 
 def test_audio_upload_with_invalid_bytes_marks_failed(http, auth):
-    """Phase 3.1: audio now goes through Groq Whisper. Invalid bytes should
-    cause Groq to reject the file → worker marks the doc FAILED. (See
-    `test_audio_flow.py` for the happy-path round-trip with a real WAV.)"""
+    # Invalid audio bytes should cause Groq Whisper to reject the file and
+    # the worker to mark the doc FAILED. Happy path lives in test_audio_flow.
     body = b"fake mp3 bytes"
     upload = http.post(
         "/documents",

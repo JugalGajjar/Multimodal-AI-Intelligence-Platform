@@ -1,9 +1,4 @@
-"""Audio transcription via Groq's hosted Whisper.
-
-The Groq SDK is imported lazily so this module is safe to import in the API
-container (which doesn't install the `worker` extras). Only the worker
-actually calls `transcribe_audio_bytes`.
-"""
+"""Audio transcription via Groq Whisper. SDK is imported lazily."""
 
 from io import BytesIO
 
@@ -11,7 +6,7 @@ from app.core.config import settings
 
 
 class TranscriptionError(Exception):
-    """Raised when transcription cannot proceed (missing key, upstream error)."""
+    pass
 
 
 def transcribe_audio_bytes(
@@ -21,10 +16,6 @@ def transcribe_audio_bytes(
     model: str | None = None,
     temperature: float = 0.0,
 ) -> str:
-    """Send `data` to Groq Whisper and return the plain-text transcript.
-
-    Raises `TranscriptionError` if the key is missing or Groq returns an error.
-    """
     if not settings.groq_api_key:
         raise TranscriptionError("GROQ_API_KEY not configured")
 

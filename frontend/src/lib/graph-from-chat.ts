@@ -1,8 +1,7 @@
 import type { ChatCitation, ChatResponse } from "@/lib/chat-api";
 import type { GraphLinkData, GraphNodeData } from "@/lib/graph-api";
 
-// The Chat API response uses snake_case from FastAPI; mirror it here without
-// pulling extra types just for the conversion utility.
+// Mirrors the snake_case shape FastAPI emits.
 export type EntityUsed = {
   name: string;
   type: string;
@@ -21,11 +20,8 @@ export type ChatGraphData = {
   links: GraphLinkData[];
 };
 
-/**
- * Build {nodes, links} for <KnowledgeGraph> from a chat response's
- * entities_used. Adds any related "other" entity as a node so edges aren't
- * dangling; dedupes links by source|relation|target.
- */
+// Adds each "other" endpoint as a node so edges never dangle, and dedupes
+// links by `source|relation|target`.
 export function buildChatGraph(
   entities: ReadonlyArray<EntityUsed>,
 ): ChatGraphData {
@@ -35,8 +31,7 @@ export function buildChatGraph(
   function pushNode(node: GraphNodeData) {
     const existing = seenNodes.get(node.id);
     if (existing) {
-      // Prefer richer data: fill in missing fields when we encounter the
-      // entity again as a primary `entities_used` entry.
+      // Prefer richer data when the same node turns up again.
       if (!existing.description && node.description)
         existing.description = node.description;
       if (existing.type === "Concept" && node.type !== "Concept")
@@ -47,7 +42,7 @@ export function buildChatGraph(
     nodes.push(node);
   }
 
-  // Primary entities first so they win the "richer description" tie-break.
+  // Primary entities first so they win the richer-data tie-break above.
   for (const e of entities) {
     pushNode({
       id: e.name,
@@ -65,7 +60,6 @@ export function buildChatGraph(
     for (const rel of e.relations) {
       if (!rel.other) continue;
 
-      // Add the "other" node if we don't already have it.
       pushNode({
         id: rel.other,
         name: rel.other,
@@ -89,10 +83,7 @@ export function buildChatGraph(
   return { nodes, links };
 }
 
-/**
- * Find entity ids (names) from `entities` that appear verbatim in the
- * answer. Used to brighten/enlarge nodes the model actually quoted.
- */
+// Entity ids whose names appear verbatim in the answer (case-insensitive).
 export function findHighlightedEntities(
   answer: string,
   entities: ReadonlyArray<EntityUsed>,
@@ -110,7 +101,6 @@ export function findHighlightedEntities(
   return result;
 }
 
-/** Tiny adapter so the chat panel can stay declarative. */
 export function chatToGraphProps(response: ChatResponse): {
   data: ChatGraphData;
   highlighted: Set<string>;

@@ -1,9 +1,5 @@
 import Link from "next/link";
 
-/**
- * Wordmark used in both the sidebar (when expanded) and the landing/auth pages.
- * The icon is a stylized "neural node" — three orbiting dots around a centre.
- */
 export function BrandMark({
   size = "md",
   href = "/",

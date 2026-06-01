@@ -5,13 +5,7 @@ import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 
 import { useAuthStore } from "@/store/auth";
 
-/**
- * Client-side auth gate. Renders children only after Zustand has rehydrated
- * from localStorage and a token is present; otherwise redirects to /login.
- *
- * `hydrated` is derived via useSyncExternalStore so we avoid the
- * set-state-in-effect anti-pattern (React 19+).
- */
+// `hydrated` is derived via useSyncExternalStore to avoid set-state-in-effect.
 function useHydrated(): boolean {
   return useSyncExternalStore(
     () => () => {},

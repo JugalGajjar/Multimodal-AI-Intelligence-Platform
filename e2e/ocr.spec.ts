@@ -14,14 +14,13 @@ async function registerAndSignIn(page: import("@playwright/test").Page) {
   await page.waitForURL("**/dashboard");
 }
 
-test.describe("Phase 2.2 — OCR pipeline (worker)", () => {
+test.describe("OCR pipeline (worker)", () => {
   test("text/plain upload → status processed → text visible in UI", async ({
     page,
   }) => {
     await registerAndSignIn(page);
 
-    const content =
-      "Phase 2.2 OCR end-to-end. The quick brown fox jumps over the lazy dog.";
+    const content = "The quick brown fox jumps over the lazy dog.";
 
     await page.getByLabel("File", { exact: true }).setInputFiles({
       name: "phase22.txt",

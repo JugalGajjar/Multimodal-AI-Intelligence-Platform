@@ -33,7 +33,7 @@ async function registerAndSignIn(page: import("@playwright/test").Page) {
   return email;
 }
 
-test.describe("Phase 2.1 — document upload", () => {
+test.describe("document upload", () => {
   test("upload a PDF, see it in the list, delete it", async ({ page }) => {
     await registerAndSignIn(page);
 

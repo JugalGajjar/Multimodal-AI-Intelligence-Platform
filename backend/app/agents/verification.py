@@ -1,21 +1,12 @@
-"""Verification agent (Phase 5.2).
+"""Score an answer's groundedness against its cited context.
 
-Re-reads an answer against the context (cited chunks + knowledge-graph facts)
-and emits a structured groundedness verdict:
+The LLM decomposes the answer into atomic claims, labels each
+`supported | unsupported | uncertain`, and we compute a score in [0, 1]:
+supported=1.0, uncertain=0.5, unsupported=0.0. Score maps to a verdict via
+thresholds in settings.
 
-    verified    — every atomic claim is supported by the context
-    partial     — some claims are unsupported (above the partial threshold)
-    unsupported — most claims are unsupported (below the partial threshold)
-    skipped     — verification didn't run (no context, disabled, or LLM error)
-
-The model is asked to:
-
-  1. Decompose the answer into atomic factual claims.
-  2. Label each as `supported | unsupported | uncertain` against the context.
-  3. Quote which passage / graph fact backs the supported ones.
-
-`uncertain` counts as half-support so a hedged answer doesn't get penalised
-as harshly as an outright fabrication.
+Skipped (best-effort) when disabled, when there's no context, or on any
+upstream error — so chat never fails because verification couldn't run.
 """
 
 from __future__ import annotations
@@ -182,14 +173,7 @@ def _parse_claims(raw: str) -> list[ClaimVerdict]:
 
 
 def _score(claims: list[ClaimVerdict]) -> tuple[float, int, list[str]]:
-    """Return (groundedness_score, supported_count, unsupported_texts).
-
-    Scoring:
-      supported   = 1.0
-      uncertain   = 0.5
-      unsupported = 0.0
-    Score is the mean across all claims.
-    """
+    # supported=1.0, uncertain=0.5, unsupported=0.0; score is the mean.
     if not claims:
         return 1.0, 0, []
     total = 0.0
@@ -207,8 +191,8 @@ def _score(claims: list[ClaimVerdict]) -> tuple[float, int, list[str]]:
 
 
 def _verdict_for(score: float, *, has_claims: bool) -> Verdict:
+    # An answer with no factual claims is vacuously verified.
     if not has_claims:
-        # Vacuously verified — no factual claims to check.
         return "verified"
     if score >= settings.verification_threshold_verified:
         return "verified"
@@ -245,17 +229,6 @@ async def verify_answer(
     chunks: list[RetrievedChunk],
     graph_facts: list[GraphFact],
 ) -> VerificationResult:
-    """Verify `answer` against the cited context.
-
-    Returns a `VerificationResult` with the verdict, groundedness score, and
-    the list of unsupported claim texts (for UI surfacing).
-
-    Skipped — and treated as best-effort — when:
-      - the feature is disabled in settings,
-      - the answer is empty / whitespace,
-      - there is no context AND no graph facts to verify against,
-      - the LLM call fails (rate limit, JSON parse error, etc.).
-    """
     if not settings.verification_enabled:
         return _skip("verification disabled")
     if not answer or not answer.strip():
@@ -286,7 +259,6 @@ async def verify_answer(
 
 
 def to_dict(result: VerificationResult) -> dict[str, Any]:
-    """Serializer used by the workflow → router → ChatResponse plumbing."""
     return {
         "verdict": result.verdict,
         "groundedness_score": round(result.groundedness_score, 3),

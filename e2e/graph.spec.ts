@@ -50,7 +50,7 @@ async function registerAndSignIn(page: import("@playwright/test").Page) {
   await page.waitForURL("**/dashboard");
 }
 
-test.describe("Phase 4.3d — /dashboard/graph full graph page", () => {
+test.describe("/dashboard/graph full graph page", () => {
   test("renders entity + relationship counts and the graph", async ({
     page,
   }) => {

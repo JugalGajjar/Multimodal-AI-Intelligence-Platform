@@ -1,9 +1,4 @@
-"""Qdrant client + collection bootstrap.
-
-Importable from both the API container (for retrieval) and the worker
-(for ingestion). The qdrant-client package is in the base deps so it lives
-in both images.
-"""
+"""Qdrant client + collection bootstrap."""
 
 from functools import lru_cache
 
