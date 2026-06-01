@@ -6,6 +6,12 @@ export type DocumentStatus =
   | "processed"
   | "failed";
 
+export type DocumentSummary = {
+  tldr: string;
+  key_points: string[];
+  topics: string[];
+};
+
 export type DocumentItem = {
   id: string;
   filename: string;
@@ -14,6 +20,7 @@ export type DocumentItem = {
   status: DocumentStatus;
   created_at: string;
   updated_at: string;
+  summary?: DocumentSummary | null;
 };
 
 export type DocumentListResponse = {
@@ -78,7 +85,7 @@ export async function uploadDocument(
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
-      // No Content-Type — the browser sets multipart boundary.
+      // Content-Type is set by the browser to include the multipart boundary.
     },
     body: form,
   });
@@ -89,7 +96,7 @@ export async function uploadDocument(
     try {
       body = JSON.parse(text);
     } catch {
-      // raw text
+      // body stays as raw text
     }
     throw new ApiError(
       `Upload failed: ${response.status} ${response.statusText}`,
@@ -105,6 +112,34 @@ export type ReindexGraphResponse = {
   queued: boolean;
   document_id: string;
 };
+
+export async function resummarizeDocument(
+  token: string,
+  id: string,
+): Promise<ReindexGraphResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/documents/${id}/resummarize`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    let body: unknown = text;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // body stays as raw text
+    }
+    throw new ApiError(
+      `Resummarize failed: ${response.status} ${response.statusText}`,
+      response.status,
+      body,
+    );
+  }
+  return (await response.json()) as ReindexGraphResponse;
+}
 
 export async function reindexDocumentGraph(
   token: string,
@@ -123,7 +158,7 @@ export async function reindexDocumentGraph(
     try {
       body = JSON.parse(text);
     } catch {
-      // raw text
+      // body stays as raw text
     }
     throw new ApiError(
       `Reindex failed: ${response.status} ${response.statusText}`,

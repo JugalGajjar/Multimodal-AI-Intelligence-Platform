@@ -28,7 +28,6 @@ async def store_uploaded_file(
     content_type: str,
     data: bytes,
 ) -> Document:
-    """Create the DB row + push bytes to MinIO. All-or-nothing."""
     doc = Document(
         user_id=user_id,
         filename=filename,
@@ -38,7 +37,8 @@ async def store_uploaded_file(
         status=DocumentStatus.UPLOADED,
     )
     db.add(doc)
-    await db.flush()  # populates doc.id without committing
+    # Flush to populate doc.id without committing yet.
+    await db.flush()
 
     key = object_storage_key(user_id, doc.id)
     try:
@@ -64,7 +64,7 @@ async def store_uploaded_file(
 
 
 async def _enqueue_ocr(document_id) -> None:
-    """Best-effort enqueue. Worker outage shouldn't fail uploads."""
+    # Worker outage shouldn't fail uploads — the doc will sit at "uploaded".
     try:
         pool = await get_arq_pool()
         try:
@@ -76,11 +76,6 @@ async def _enqueue_ocr(document_id) -> None:
 
 
 async def enqueue_graph_reindex(document_id) -> bool:
-    """Enqueue a graph re-extraction over the document's stored chunks.
-
-    Returns True if successfully queued; False on a transient queue outage
-    (worker will not have picked the job up).
-    """
     try:
         pool = await get_arq_pool()
         try:
@@ -93,8 +88,21 @@ async def enqueue_graph_reindex(document_id) -> bool:
         return False
 
 
+async def enqueue_resummarize(document_id) -> bool:
+    try:
+        pool = await get_arq_pool()
+        try:
+            await pool.enqueue_job("resummarize_document", str(document_id))
+        finally:
+            await pool.close()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("failed to enqueue resummarize for %s: %s", document_id, exc)
+        return False
+
+
 async def delete_stored_object(storage_key: str) -> None:
-    """Best-effort MinIO delete; swallow not-found / bucket-missing."""
+    # Best-effort: swallow not-found / bucket-missing.
     with contextlib.suppress(S3Error):
         await asyncio.to_thread(
             get_minio_client().remove_object,
@@ -104,8 +112,7 @@ async def delete_stored_object(storage_key: str) -> None:
 
 
 async def delete_vector_points(document_id: str) -> None:
-    """Best-effort Qdrant cleanup. Failure here doesn't fail the request —
-    the Postgres CASCADE has already removed the chunk rows."""
+    # Postgres CASCADE has already removed chunk rows; Qdrant is best-effort.
     try:
         from app.storage.qdrant_client import delete_points_for_document
 
@@ -115,8 +122,6 @@ async def delete_vector_points(document_id: str) -> None:
 
 
 async def delete_graph_traces(user_id: str, document_id: str) -> None:
-    """Best-effort Neo4j cleanup — drop this doc's id from entity/edge
-    document_ids arrays and delete orphans."""
     try:
         from app.graph.neo4j_client import delete_document_traces
 

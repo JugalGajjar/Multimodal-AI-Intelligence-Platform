@@ -6,6 +6,12 @@ from pydantic import BaseModel, ConfigDict
 from app.documents.models import DocumentStatus
 
 
+class DocumentSummary(BaseModel):
+    tldr: str = ""
+    key_points: list[str] = []
+    topics: list[str] = []
+
+
 class DocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -16,6 +22,7 @@ class DocumentResponse(BaseModel):
     status: DocumentStatus
     created_at: datetime
     updated_at: datetime
+    summary: DocumentSummary | None = None
 
 
 class DocumentListResponse(BaseModel):

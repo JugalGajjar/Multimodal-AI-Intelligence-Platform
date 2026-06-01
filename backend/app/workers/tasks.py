@@ -17,7 +17,7 @@ log = logging.getLogger("mmap.worker")
 
 
 async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
-    """Worker task: OCR → chunk → embed → upsert into Qdrant."""
+    # OCR → chunk → embed → Qdrant → graph → summary.
     from app.embeddings import embed_texts
     from app.workers.chunking import chunk_text
     from app.workers.ocr.pipeline import extract_text_from_bytes
@@ -71,22 +71,21 @@ async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
             doc.status = DocumentStatus.PROCESSED
             await db.commit()
 
-            # Non-blocking knowledge-graph ingestion. Failure here (LLM rate
-            # limit, Neo4j down) must NOT mark the doc as failed — vector RAG
-            # still works without entities.
+            # Graph + summary are best-effort. Vector RAG still works without
+            # them, so failures here must not fail the document.
             if text.strip():
                 await _ingest_graph(
                     text=text,
                     user_id=str(doc.user_id),
                     document_id=str(doc.id),
                 )
+                await _summarize_and_store(text=text, document_id=str(doc.id))
             return "processed"
 
         except Exception as exc:  # noqa: BLE001
             log.exception("ocr pipeline failed for doc=%s", document_id)
-            # Discard any pending chunk inserts (added before embed/upsert
-            # ran). Without this, db.commit() below would persist orphan
-            # chunks with no matching Qdrant points.
+            # Discard pending chunk inserts so we don't persist orphan rows
+            # whose vectors never reached Qdrant.
             await db.rollback()
             failed_doc = await db.get(Document, document_id)
             if failed_doc is not None:
@@ -113,7 +112,6 @@ def _upsert_qdrant_points(
     user_id: str,
     document_id: str,
 ) -> None:
-    """Idempotent upsert into the chunks collection."""
     from qdrant_client.http import models as qmodels
 
     from app.storage.qdrant_client import (
@@ -143,8 +141,7 @@ def _upsert_qdrant_points(
 
 
 async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
-    """Extract entities/relations from the full document text and persist
-    them to Neo4j. Logs and swallows errors so the worker stays best-effort."""
+    # Best-effort: swallow errors so the worker stays non-blocking.
     try:
         from app.graph.extraction import safe_extract_entities
         from app.graph.neo4j_client import (
@@ -185,14 +182,68 @@ async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
         log.warning("graph ingest failed (non-blocking): %s", exc)
 
 
-async def reindex_graph_for_document(ctx: dict[str, Any], document_id: str) -> str:
-    """Re-run entity extraction on already-stored chunks for a single document.
+async def _summarize_and_store(*, text: str, document_id: str) -> None:
+    # Best-effort: failure leaves the existing summary columns untouched.
+    try:
+        from app.agents.summarization import summarize_document
 
-    Use this after a transient extraction failure (Groq daily cap, etc.).
-    No re-OCR, no re-embedding — just reads chunk rows from Postgres, joins
-    them in order, and runs the same `_ingest_graph` path the upload pipeline
-    uses.
-    """
+        result = await summarize_document(text)
+        if result.is_empty():
+            log.info("summary: no content produced for doc=%s", document_id)
+            return
+
+        async with async_session_maker() as db:
+            doc = await db.get(Document, document_id)
+            if doc is None:
+                return
+            doc.summary_tldr = result.tldr or None
+            doc.summary_key_points = list(result.key_points) or None
+            doc.summary_topics = list(result.topics) or None
+            await db.commit()
+        log.info(
+            "summary: doc=%s tldr=%d chars points=%d topics=%d",
+            document_id,
+            len(result.tldr),
+            len(result.key_points),
+            len(result.topics),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("summarization failed (non-blocking): %s", exc)
+
+
+async def resummarize_document(ctx: dict[str, Any], document_id: str) -> str:
+    # Re-run summarization on stored chunks. No re-OCR or re-embed.
+    async with async_session_maker() as db:
+        doc = await db.get(Document, document_id)
+        if doc is None:
+            return "missing"
+
+        if str(doc.status) != DocumentStatus.PROCESSED.value:
+            log.info(
+                "resummarize: doc %s status=%s — skipping (expected 'processed')",
+                document_id,
+                doc.status,
+            )
+            return "skipped"
+
+        stmt = (
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == doc.id)
+            .order_by(DocumentChunk.chunk_index.asc())
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+
+    text = "\n\n".join(r.text for r in rows) if rows else (doc.extracted_text or "")
+    if not text.strip():
+        log.info("resummarize: doc %s has no text — nothing to summarize", document_id)
+        return "no-text"
+
+    await _summarize_and_store(text=text, document_id=document_id)
+    return "resummarized"
+
+
+async def reindex_graph_for_document(ctx: dict[str, Any], document_id: str) -> str:
+    # Re-run entity extraction on stored chunks. No re-OCR or re-embed.
     async with async_session_maker() as db:
         doc = await db.get(Document, document_id)
         if doc is None:
@@ -214,8 +265,7 @@ async def reindex_graph_for_document(ctx: dict[str, Any], document_id: str) -> s
         )
         rows = (await db.execute(stmt)).scalars().all()
 
-    # Prefer the chunk join (it's already cleaned). Fall back to the document's
-    # stored text only if the chunk table is empty (older rows).
+    # Prefer the cleaned chunk join; fall back to extracted_text for legacy rows.
     text = "\n\n".join(r.text for r in rows) if rows else (doc.extracted_text or "")
 
     if not text.strip():
@@ -231,7 +281,7 @@ async def reindex_graph_for_document(ctx: dict[str, Any], document_id: str) -> s
 
 
 async def fetch_document(document_id: str) -> Document | None:
-    """Test helper; not part of arq's surface."""
+    # Test helper; not part of arq's surface.
     async with async_session_maker() as db:
         result = await db.execute(select(Document).where(Document.id == document_id))
         return result.scalar_one_or_none()

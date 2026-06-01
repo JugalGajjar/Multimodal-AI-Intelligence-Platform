@@ -353,4 +353,109 @@ describe("<DocumentsList />", () => {
       await screen.findByText(/failed to load documents/i),
     ).toBeInTheDocument();
   });
+
+  describe("document summary", () => {
+    function summarizedDoc() {
+      return makeDoc({
+        id: "d-sum",
+        filename: "summary-doc.pdf",
+        summary: {
+          tldr: "This document covers vector RAG end-to-end.",
+          key_points: ["First key point", "Second key point"],
+          topics: ["vector RAG", "embeddings"],
+        },
+      });
+    }
+
+    it("renders the TL;DR by default and the details only after expand", async () => {
+      const r = createRoutedFetch();
+      r.add(/\/documents$/, () =>
+        jsonResponse({ items: [summarizedDoc()], total: 1 }),
+      );
+      r.add(/\/chunks$/, () =>
+        jsonResponse({ document_id: "d-sum", total: 1, items: [] }),
+      );
+      vi.stubGlobal("fetch", vi.fn(r.impl));
+
+      renderWithQuery(<DocumentsList />);
+
+      // TL;DR visible.
+      expect(
+        await screen.findByText(/vector RAG end-to-end/i),
+      ).toBeInTheDocument();
+      // Details (key points, topics) hidden until expand.
+      expect(
+        screen.queryByTestId("summary-details"),
+      ).not.toBeInTheDocument();
+
+      // Expand.
+      await userEvent.click(screen.getByTestId("summary-toggle"));
+
+      const details = screen.getByTestId("summary-details");
+      expect(details).toHaveTextContent(/first key point/i);
+      expect(details).toHaveTextContent(/second key point/i);
+      expect(details).toHaveTextContent(/vector RAG/i);
+      expect(details).toHaveTextContent(/embeddings/i);
+    });
+
+    it("does NOT render the summary block when the doc has no summary", async () => {
+      const r = createRoutedFetch();
+      r.add(/\/documents$/, () => jsonResponse({ items: [makeDoc()], total: 1 }));
+      r.add(/\/chunks$/, () =>
+        jsonResponse({ document_id: "d-1", total: 1, items: [] }),
+      );
+      vi.stubGlobal("fetch", vi.fn(r.impl));
+
+      renderWithQuery(<DocumentsList />);
+      await screen.findByText("hello.pdf");
+
+      expect(
+        screen.queryByTestId("document-summary"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("clicking 'Summarize' POSTs the resummarize endpoint and shows status", async () => {
+      const r = createRoutedFetch();
+      r.add(/\/documents$/, () => jsonResponse({ items: [makeDoc()], total: 1 }));
+      r.add(/\/chunks$/, () =>
+        jsonResponse({ document_id: "d-1", total: 1, items: [] }),
+      );
+      r.add(/\/resummarize$/, () =>
+        jsonResponse({ queued: true, document_id: "d-1" }, 202),
+      );
+      const spy = vi.fn(r.impl);
+      vi.stubGlobal("fetch", spy);
+
+      renderWithQuery(<DocumentsList />);
+      await userEvent.click(await screen.findByTestId("summarize-button"));
+
+      await waitFor(() => {
+        const call = spy.mock.calls.find(
+          (c) =>
+            (c[1] as RequestInit | undefined)?.method === "POST" &&
+            /\/resummarize$/.test(String(c[0])),
+        );
+        expect(call).toBeDefined();
+      });
+      expect(await screen.findByTestId("summarize-status")).toHaveTextContent(
+        /summarizing/i,
+      );
+    });
+
+    it("button label says 'Re-summarize' when the doc already has a summary", async () => {
+      const r = createRoutedFetch();
+      r.add(/\/documents$/, () =>
+        jsonResponse({ items: [summarizedDoc()], total: 1 }),
+      );
+      r.add(/\/chunks$/, () =>
+        jsonResponse({ document_id: "d-sum", total: 1, items: [] }),
+      );
+      vi.stubGlobal("fetch", vi.fn(r.impl));
+
+      renderWithQuery(<DocumentsList />);
+
+      const btn = await screen.findByTestId("summarize-button");
+      expect(btn).toHaveTextContent(/re-summarize/i);
+    });
+  });
 });

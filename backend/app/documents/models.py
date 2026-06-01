@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User
@@ -38,6 +40,13 @@ class Document(Base):
         String(32), nullable=False, default=DocumentStatus.UPLOADED
     )
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Populated by the summarization agent; null when no summary has been
+    # generated or stored yet.
+    summary_tldr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_key_points: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True)
+    summary_topics: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -49,3 +58,13 @@ class Document(Base):
     )
 
     user: Mapped[User] = relationship(lazy="noload")
+
+    @property
+    def summary(self) -> dict[str, Any] | None:
+        if not self.summary_tldr and not self.summary_key_points and not self.summary_topics:
+            return None
+        return {
+            "tldr": self.summary_tldr or "",
+            "key_points": list(self.summary_key_points or []),
+            "topics": list(self.summary_topics or []),
+        }

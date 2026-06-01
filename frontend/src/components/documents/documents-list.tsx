@@ -10,6 +10,8 @@ import {
   FileType,
   Files,
   RefreshCw,
+  ScrollText,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
@@ -30,6 +32,7 @@ import {
   listDocumentChunks,
   listDocuments,
   reindexDocumentGraph,
+  resummarizeDocument,
   type DocumentItem,
   type DocumentListResponse,
   type DocumentStatus,
@@ -64,7 +67,13 @@ export function DocumentsList() {
   const token = useAuthStore((s) => s.token);
   const queryClient = useQueryClient();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [openSummaryId, setOpenSummaryId] = useState<string | null>(null);
   const [reindexStatus, setReindexStatus] = useState<{
+    id: string;
+    kind: "ok" | "err";
+    message: string;
+  } | null>(null);
+  const [summarizeStatus, setSummarizeStatus] = useState<{
     id: string;
     kind: "ok" | "err";
     message: string;
@@ -96,6 +105,26 @@ export function DocumentsList() {
     onError: (err: unknown, id) => {
       const msg = err instanceof Error ? err.message : "Re-index failed.";
       setReindexStatus({ id, kind: "err", message: msg });
+    },
+  });
+
+  const summarizeMutation = useMutation({
+    mutationFn: (id: string) => resummarizeDocument(token!, id),
+    onSuccess: (_, id) => {
+      setSummarizeStatus({
+        id,
+        kind: "ok",
+        message: "Summarizing… the summary will appear within ~10s.",
+      });
+      // Refresh once the worker should have written the summary.
+      setTimeout(
+        () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
+        12_000,
+      );
+    },
+    onError: (err: unknown, id) => {
+      const msg = err instanceof Error ? err.message : "Summarize failed.";
+      setSummarizeStatus({ id, kind: "err", message: msg });
     },
   });
 
@@ -195,6 +224,45 @@ export function DocumentsList() {
                         size="sm"
                         disabled={
                           doc.status !== "processed" ||
+                          (summarizeMutation.isPending &&
+                            summarizeMutation.variables === doc.id)
+                        }
+                        onClick={() => {
+                          setSummarizeStatus(null);
+                          summarizeMutation.mutate(doc.id);
+                        }}
+                        title={
+                          doc.summary
+                            ? "Re-run summarization"
+                            : "Generate a TL;DR + key points + topics"
+                        }
+                        data-testid="summarize-button"
+                        className="gap-1"
+                      >
+                        <Sparkles
+                          className={
+                            "size-3.5 " +
+                            (summarizeMutation.isPending &&
+                            summarizeMutation.variables === doc.id
+                              ? "animate-pulse"
+                              : "")
+                          }
+                          aria-hidden="true"
+                        />
+                        <span className="hidden sm:inline">
+                          {summarizeMutation.isPending &&
+                          summarizeMutation.variables === doc.id
+                            ? "Summarizing…"
+                            : doc.summary
+                              ? "Re-summarize"
+                              : "Summarize"}
+                        </span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={
+                          doc.status !== "processed" ||
                           (reindexMutation.isPending &&
                             reindexMutation.variables === doc.id)
                         }
@@ -236,6 +304,17 @@ export function DocumentsList() {
                       </Button>
                     </div>
                   </div>
+                  {doc.summary && (
+                    <SummaryBlock
+                      summary={doc.summary}
+                      expanded={openSummaryId === doc.id}
+                      onToggle={() =>
+                        setOpenSummaryId((id) =>
+                          id === doc.id ? null : doc.id,
+                        )
+                      }
+                    />
+                  )}
                   {reindexStatus?.id === doc.id && (
                     <p
                       className={
@@ -249,6 +328,19 @@ export function DocumentsList() {
                       {reindexStatus.message}
                     </p>
                   )}
+                  {summarizeStatus?.id === doc.id && (
+                    <p
+                      className={
+                        "mt-2 text-xs " +
+                        (summarizeStatus.kind === "ok"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-destructive")
+                      }
+                      data-testid="summarize-status"
+                    >
+                      {summarizeStatus.message}
+                    </p>
+                  )}
                   {isOpen && <DocumentText id={doc.id} />}
                 </li>
               );
@@ -257,6 +349,103 @@ export function DocumentsList() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function SummaryBlock({
+  summary,
+  expanded,
+  onToggle,
+}: {
+  summary: NonNullable<DocumentItem["summary"]>;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const hasDetails =
+    summary.key_points.length > 0 || summary.topics.length > 0;
+
+  return (
+    <div
+      className="mt-3 rounded-lg border border-[color:var(--brand)]/20 bg-[color:var(--brand)]/5 p-3"
+      data-testid="document-summary"
+    >
+      <div className="flex items-start gap-2.5">
+        <ScrollText
+          className="mt-0.5 size-3.5 shrink-0 text-[color:var(--brand)]"
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1">
+          <p
+            className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+            aria-hidden="true"
+          >
+            Summary
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-foreground/90">
+            {summary.tldr || "(no TL;DR)"}
+          </p>
+          {hasDetails && (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="mt-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+              aria-expanded={expanded}
+              data-testid="summary-toggle"
+            >
+              {expanded ? (
+                <ChevronUp className="size-3" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="size-3" aria-hidden="true" />
+              )}
+              {expanded ? "Hide details" : "Show key points + topics"}
+            </button>
+          )}
+          {expanded && hasDetails && (
+            <div className="mt-3 space-y-3" data-testid="summary-details">
+              {summary.key_points.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Key points
+                  </p>
+                  <ul className="space-y-1 text-xs text-foreground/90">
+                    {summary.key_points.map((p, i) => (
+                      <li
+                        key={`${i}-${p.slice(0, 24)}`}
+                        className="flex gap-2"
+                      >
+                        <span
+                          className="mt-1.5 inline-block size-1 shrink-0 rounded-full bg-[color:var(--brand)]"
+                          aria-hidden="true"
+                        />
+                        <span>{p}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {summary.topics.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Topics
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {summary.topics.map((t, i) => (
+                      <Badge
+                        key={`${i}-${t}`}
+                        variant="outline"
+                        className="font-normal"
+                      >
+                        {t}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
