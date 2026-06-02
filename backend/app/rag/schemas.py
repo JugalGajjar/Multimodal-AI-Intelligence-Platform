@@ -53,3 +53,5 @@ class ChatResponse(BaseModel):
     used_context: bool
     used_graph: bool = False
     verification: VerificationInfo = Field(default_factory=VerificationInfo)
+    # Which workflow branch the intent router chose for this turn.
+    intent: str = "chat"

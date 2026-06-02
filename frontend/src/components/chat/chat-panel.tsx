@@ -10,6 +10,8 @@ import {
   Loader2,
   MessageSquareText,
   Network,
+  Route,
+  ScrollText,
   SendHorizontal,
   ShieldAlert,
   ShieldCheck,
@@ -151,6 +153,9 @@ function Answer({ response }: { response: ChatResponse }) {
         <Badge variant="outline" className="font-mono text-[10px]">
           {response.model}
         </Badge>
+        {response.intent && response.intent !== "chat" && (
+          <IntentBadge intent={response.intent} />
+        )}
         {response.used_context ? (
           <Badge className="gap-1 bg-gradient-brand text-brand-foreground">
             <Sparkles className="size-3" aria-hidden="true" />
@@ -222,6 +227,28 @@ function Answer({ response }: { response: ChatResponse }) {
         </div>
       )}
     </div>
+  );
+}
+
+function IntentBadge({ intent }: { intent: string }) {
+  const label =
+    intent === "summarize"
+      ? "summary route"
+      : intent === "explain_graph"
+        ? "graph route"
+        : intent;
+  const Icon =
+    intent === "summarize" ? ScrollText : intent === "explain_graph" ? Network : Route;
+  return (
+    <Badge
+      variant="outline"
+      className="gap-1 border-[color:var(--brand)]/40 text-[color:var(--brand)]"
+      title={`Router classified this query as "${intent}"`}
+      data-testid="intent-badge"
+    >
+      <Icon className="size-3" aria-hidden="true" />
+      {label}
+    </Badge>
   );
 }
 

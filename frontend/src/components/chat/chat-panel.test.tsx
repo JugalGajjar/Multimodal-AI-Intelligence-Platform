@@ -423,4 +423,60 @@ describe("<ChatPanel />", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  describe("intent badge", () => {
+    function bodyWithIntent(intent: string) {
+      return {
+        answer: "x",
+        citations: [],
+        entities_used: [],
+        model: "openai/gpt-oss-20b",
+        used_context: true,
+        used_graph: false,
+        intent,
+      };
+    }
+
+    it("does NOT render the intent badge for the default chat route", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse(bodyWithIntent("chat"))),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await screen.findByTestId("chat-answer");
+      expect(screen.queryByTestId("intent-badge")).not.toBeInTheDocument();
+    });
+
+    it("renders a 'summary route' badge when the router picked summarize", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse(bodyWithIntent("summarize"))),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      const badge = await screen.findByTestId("intent-badge");
+      expect(badge).toHaveTextContent(/summary route/i);
+    });
+
+    it("renders a 'graph route' badge when the router picked explain_graph", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonResponse(bodyWithIntent("explain_graph"))),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      const badge = await screen.findByTestId("intent-badge");
+      expect(badge).toHaveTextContent(/graph route/i);
+    });
+  });
 });

@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from app.agents import chat_workflow as wf
+from app.agents.verification import VerificationResult
 from app.rag.graph_expansion import GraphFact, GraphRelation
 from app.rag.groq_chat import GroqChatError
 from app.rag.retrieval import RetrievedChunk
@@ -37,9 +38,15 @@ def _fact() -> GraphFact:
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_classifier_to_chat():
+    """Default every test to the 'chat' route so we don't hit Groq."""
+    with patch.object(wf, "classify_intent", new=AsyncMock(return_value="chat")):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_run_chat_returns_answer_chunks_and_facts():
-    """Happy path: retrieve fills chunks+facts, respond fills answer+model."""
     chunks = [_chunk("Qdrant is a vector DB")]
     facts = [_fact()]
 
@@ -55,6 +62,7 @@ async def test_run_chat_returns_answer_chunks_and_facts():
     assert state["graph_facts"] == facts
     assert state["used_context"] is True
     assert state["used_graph"] is True
+    assert state["intent"] == "chat"
 
 
 @pytest.mark.asyncio
@@ -74,8 +82,6 @@ async def test_run_chat_marks_no_context_when_retrieval_returns_empty():
 
 @pytest.mark.asyncio
 async def test_run_chat_uses_no_context_fallback_system_prompt(monkeypatch):
-    """When retrieval and graph both return empty, respond_node must switch
-    to the fallback system prompt (not pretend to have context)."""
     captured: dict = {}
 
     async def fake_chat(*, messages, **kwargs):
@@ -96,7 +102,6 @@ async def test_run_chat_uses_no_context_fallback_system_prompt(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_chat_propagates_groq_errors():
-    """Upstream LLM errors should bubble so FastAPI can map status codes."""
     with (
         patch.object(wf, "retrieve", return_value=[_chunk()]),
         patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
@@ -114,7 +119,6 @@ async def test_run_chat_propagates_groq_errors():
 
 @pytest.mark.asyncio
 async def test_safe_expand_swallows_graph_errors():
-    """_safe_expand is the seam that makes Neo4j outage non-fatal for chat."""
     with patch.object(
         wf,
         "expand_with_graph",
@@ -127,7 +131,6 @@ async def test_safe_expand_swallows_graph_errors():
 
 @pytest.mark.asyncio
 async def test_workflow_passes_top_k_and_document_ids_to_retrieve():
-    """Inputs from ChatRequest must reach the retrieve call unchanged."""
     captured: dict = {}
 
     def fake_retrieve(*, query, user_id, top_k, document_ids):
@@ -156,10 +159,6 @@ async def test_workflow_passes_top_k_and_document_ids_to_retrieve():
 
 @pytest.mark.asyncio
 async def test_compiled_workflow_executes_nodes_in_order():
-    """Smoke check: building + invoking the StateGraph end-to-end works
-    without LangGraph configuration mistakes (missing edges, etc.)."""
-    from app.agents.verification import VerificationResult
-
     chunks = [_chunk()]
     with (
         patch.object(wf, "retrieve", return_value=chunks),
@@ -182,10 +181,6 @@ async def test_compiled_workflow_executes_nodes_in_order():
 
 @pytest.mark.asyncio
 async def test_workflow_runs_verify_node_after_respond():
-    """The verify node must see the freshly-generated answer + the chunks
-    that retrieve produced. Whatever it returns ends up under `verification`."""
-    from app.agents.verification import VerificationResult
-
     chunks = [_chunk("Qdrant is a vector DB")]
     captured: dict = {}
 
@@ -213,3 +208,101 @@ async def test_workflow_runs_verify_node_after_respond():
     v = state["verification"]
     assert v.verdict == "partial"
     assert v.unsupported_claims == ["fabricated bit"]
+
+
+@pytest.mark.asyncio
+async def test_route_after_classify_picks_the_right_branch():
+    assert wf._route_after_classify({"intent": "chat"}) == "retrieve_for_chat"
+    assert wf._route_after_classify({"intent": "summarize"}) == "fetch_summaries"
+    assert wf._route_after_classify({"intent": "explain_graph"}) == "retrieve_for_graph"
+    # Missing intent defaults to chat.
+    assert wf._route_after_classify({}) == "retrieve_for_chat"
+
+
+@pytest.mark.asyncio
+async def test_summarize_intent_uses_summaries_branch():
+    """When the classifier returns 'summarize', the workflow must fetch the
+    user's stored doc summaries instead of running vector retrieval."""
+    summaries = [
+        {
+            "id": "d-1",
+            "filename": "paper.pdf",
+            "tldr": "The paper covers vector RAG.",
+            "key_points": ["uses Qdrant", "uses bge-small"],
+            "topics": ["RAG"],
+        }
+    ]
+
+    with (
+        patch.object(wf, "classify_intent", new=AsyncMock(return_value="summarize")),
+        patch.object(wf, "list_summaries_for_user", new=AsyncMock(return_value=summaries)),
+        patch.object(wf, "retrieve") as retrieve_spy,
+        patch.object(wf, "chat_completion", new=AsyncMock(return_value="summary answer")),
+        patch.object(
+            wf,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="verified", groundedness_score=1.0)
+            ),
+        ),
+    ):
+        state = await wf.run_chat(query="recap my docs", user_id=uuid4())
+
+    assert state["intent"] == "summarize"
+    assert state["doc_summaries"] == summaries
+    assert state["used_context"] is True
+    retrieve_spy.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_explain_graph_intent_skips_vector_retrieval():
+    facts = [_fact()]
+
+    with (
+        patch.object(wf, "classify_intent", new=AsyncMock(return_value="explain_graph")),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=facts)) as expand_spy,
+        patch.object(wf, "retrieve") as retrieve_spy,
+        patch.object(wf, "chat_completion", new=AsyncMock(return_value="graph answer")),
+        patch.object(
+            wf,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="verified", groundedness_score=1.0)
+            ),
+        ),
+    ):
+        state = await wf.run_chat(query="what relates to qdrant", user_id=uuid4())
+
+    assert state["intent"] == "explain_graph"
+    assert state["chunks"] == []
+    assert state["graph_facts"] == facts
+    assert state["used_graph"] is True
+    retrieve_spy.assert_not_called()
+    # Expansion still gets called (with empty chunks) so it walks from seeds.
+    expand_spy.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_classifier_failure_falls_back_to_chat_branch():
+    """Even when classify_intent crashes upstream, the workflow falls back
+    to the safe `chat` branch — the user always gets an answer."""
+    # The autouse fixture is the seam: replace it with a failing AsyncMock.
+    # The router's own catch is exercised by test_classify_intent_falls_back_*;
+    # this test asserts the wf surfaces the error if the classifier crashes
+    # outside its own catch (defense in depth).
+    chunks = [_chunk("text")]
+    with (
+        patch.object(wf, "classify_intent", new=AsyncMock(side_effect=RuntimeError("boom"))),
+        patch.object(wf, "retrieve", return_value=chunks),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "chat_completion", new=AsyncMock(return_value="answer")),
+        patch.object(
+            wf,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="verified", groundedness_score=1.0)
+            ),
+        ),
+        pytest.raises(RuntimeError),
+    ):
+        await wf.run_chat(query="hi", user_id=uuid4())

@@ -4,11 +4,14 @@ import asyncio
 import contextlib
 import io
 import logging
+from uuid import UUID
 
 from minio.error import S3Error
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.db.session import async_session_maker
 from app.documents.models import Document, DocumentStatus
 from app.storage.minio_client import (
     ensure_bucket,
@@ -128,3 +131,30 @@ async def delete_graph_traces(user_id: str, document_id: str) -> None:
         await delete_document_traces(user_id, document_id)
     except Exception as exc:  # noqa: BLE001
         log.warning("graph cleanup failed for doc=%s: %s", document_id, exc)
+
+
+async def list_summaries_for_user(user_id: UUID, *, limit: int = 5) -> list[dict]:
+    # Returns the user's most-recent docs that have a non-null summary.
+    async with async_session_maker() as db:
+        stmt = (
+            select(Document)
+            .where(Document.user_id == user_id)
+            .where(Document.summary_tldr.is_not(None))
+            .order_by(Document.created_at.desc())
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        docs = result.scalars().all()
+
+    out: list[dict] = []
+    for d in docs:
+        out.append(
+            {
+                "id": str(d.id),
+                "filename": d.filename,
+                "tldr": d.summary_tldr or "",
+                "key_points": list(d.summary_key_points or []),
+                "topics": list(d.summary_topics or []),
+            }
+        )
+    return out

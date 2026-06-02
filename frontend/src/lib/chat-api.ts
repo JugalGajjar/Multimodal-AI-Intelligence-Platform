@@ -40,6 +40,8 @@ export type ChatVerification = {
   skip_reason: string;
 };
 
+export type ChatIntent = "chat" | "summarize" | "explain_graph";
+
 export type ChatResponse = {
   answer: string;
   citations: ChatCitation[];
@@ -48,6 +50,7 @@ export type ChatResponse = {
   used_context: boolean;
   used_graph: boolean;
   verification?: ChatVerification;
+  intent?: ChatIntent | string;
 };
 
 export type ChatRequest = {

@@ -110,4 +110,5 @@ async def chat(
         used_context=bool(state.get("used_context")),
         used_graph=bool(state.get("used_graph")),
         verification=_to_verification(state.get("verification")),
+        intent=state.get("intent", "chat"),
     )

@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     verification_threshold_verified: float = 0.85
     verification_threshold_partial: float = 0.5
 
+    # Intent router classifies the query and branches the workflow. When
+    # disabled, every turn takes the "chat" path.
+    router_enabled: bool = True
+    # Used by the summarize branch to bound the context that's fed back.
+    router_max_summary_docs: int = 5
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.backend_cors_origins.split(",") if o.strip()]

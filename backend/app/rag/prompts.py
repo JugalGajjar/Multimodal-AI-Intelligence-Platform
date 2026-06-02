@@ -55,12 +55,28 @@ def build_graph_block(facts: list[GraphFact]) -> str:
     return "\n".join(lines)
 
 
+def build_summaries_block(summaries: list[dict]) -> str:
+    if not summaries:
+        return ""
+    lines: list[str] = []
+    for s in summaries:
+        name = s.get("filename") or s.get("id") or "document"
+        lines.append(f"- {name}")
+        tldr = (s.get("tldr") or "").strip()
+        if tldr:
+            lines.append(f"    {tldr}")
+        for p in (s.get("key_points") or [])[:5]:
+            lines.append(f"    • {p}")
+    return "\n".join(lines)
+
+
 def build_user_message(
     query: str,
     chunks: list[RetrievedChunk],
     facts: list[GraphFact] | None = None,
+    summaries: list[dict] | None = None,
 ) -> str:
-    if not chunks and not (facts or []):
+    if not chunks and not (facts or []) and not (summaries or []):
         return query
 
     sections: list[str] = []
@@ -68,5 +84,7 @@ def build_user_message(
         sections.append(f"Context passages:\n\n{build_context_block(chunks)}")
     if facts:
         sections.append(f"Knowledge-graph facts:\n{build_graph_block(facts)}")
+    if summaries:
+        sections.append(f"Document summaries:\n{build_summaries_block(summaries)}")
 
     return "\n\n".join(sections) + f"\n\nQuestion: {query}"

@@ -1,4 +1,10 @@
-"""LangGraph chat workflow: retrieve → respond → verify."""
+"""LangGraph chat workflow with intent routing.
+
+START → classify → ┬→ retrieve_for_chat
+                   ├→ fetch_summaries
+                   └→ retrieve_for_graph
+                        → respond → verify → END
+"""
 
 from __future__ import annotations
 
@@ -8,8 +14,10 @@ from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
 
+from app.agents.intent_router import DEFAULT_INTENT, Intent, classify_intent
 from app.agents.verification import VerificationResult, verify_answer
 from app.core.config import settings
+from app.documents.service import list_summaries_for_user
 from app.rag.graph_expansion import GraphFact, expand_with_graph
 from app.rag.groq_chat import chat_completion
 from app.rag.prompts import (
@@ -29,8 +37,10 @@ class ChatState(TypedDict, total=False):
     top_k: int
     document_ids: list[UUID] | None
 
+    intent: Intent
     chunks: list[RetrievedChunk]
     graph_facts: list[GraphFact]
+    doc_summaries: list[dict[str, Any]]
     used_context: bool
     used_graph: bool
 
@@ -40,16 +50,23 @@ class ChatState(TypedDict, total=False):
     verification: VerificationResult
 
 
-async def _safe_expand(query: str, chunks, user_id) -> list[GraphFact]:
+async def _safe_expand(query: str, chunks, user_id, *, max_hops=None) -> list[GraphFact]:
     # Graph expansion is best-effort; Neo4j down should not break chat.
     try:
-        return await expand_with_graph(query=query, chunks=chunks, user_id=user_id)
+        return await expand_with_graph(
+            query=query, chunks=chunks, user_id=user_id, max_hops=max_hops
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("graph expansion failed (non-blocking): %s", exc)
         return []
 
 
-async def retrieve_node(state: ChatState) -> dict[str, Any]:
+async def classify_node(state: ChatState) -> dict[str, Any]:
+    intent = await classify_intent(state["query"])
+    return {"intent": intent}
+
+
+async def retrieve_for_chat_node(state: ChatState) -> dict[str, Any]:
     chunks = retrieve(
         query=state["query"],
         user_id=state["user_id"],
@@ -66,13 +83,52 @@ async def retrieve_node(state: ChatState) -> dict[str, Any]:
     }
 
 
+async def fetch_summaries_node(state: ChatState) -> dict[str, Any]:
+    summaries = await list_summaries_for_user(
+        state["user_id"], limit=settings.router_max_summary_docs
+    )
+    return {
+        "doc_summaries": summaries,
+        "chunks": [],
+        "graph_facts": [],
+        "used_context": bool(summaries),
+        "used_graph": False,
+    }
+
+
+async def retrieve_for_graph_node(state: ChatState) -> dict[str, Any]:
+    # Graph-only path: no vector chunks, broader graph walk for richer context.
+    chunks: list[RetrievedChunk] = []
+    graph_facts = await _safe_expand(
+        state["query"], chunks, state["user_id"], max_hops=settings.graph_max_hops
+    )
+
+    return {
+        "chunks": chunks,
+        "graph_facts": graph_facts,
+        "used_context": False,
+        "used_graph": bool(graph_facts),
+    }
+
+
+def _route_after_classify(state: ChatState) -> str:
+    intent = state.get("intent") or DEFAULT_INTENT
+    if intent == "summarize":
+        return "fetch_summaries"
+    if intent == "explain_graph":
+        return "retrieve_for_graph"
+    return "retrieve_for_chat"
+
+
 async def respond_node(state: ChatState) -> dict[str, Any]:
     # Lets GroqChatError propagate so the router can map upstream status codes.
     chunks = state.get("chunks") or []
     graph_facts = state.get("graph_facts") or []
+    summaries = state.get("doc_summaries") or []
 
-    system = SYSTEM_PROMPT if (chunks or graph_facts) else NO_CONTEXT_FALLBACK_SYSTEM
-    user_msg = build_user_message(state["query"], chunks, facts=graph_facts)
+    has_context = bool(chunks or graph_facts or summaries)
+    system = SYSTEM_PROMPT if has_context else NO_CONTEXT_FALLBACK_SYSTEM
+    user_msg = build_user_message(state["query"], chunks, facts=graph_facts, summaries=summaries)
 
     answer = await chat_completion(
         messages=[
@@ -100,11 +156,26 @@ async def verify_node(state: ChatState) -> dict[str, Any]:
 
 def build_chat_workflow():
     graph = StateGraph(ChatState)
-    graph.add_node("retrieve", retrieve_node)
+    graph.add_node("classify", classify_node)
+    graph.add_node("retrieve_for_chat", retrieve_for_chat_node)
+    graph.add_node("fetch_summaries", fetch_summaries_node)
+    graph.add_node("retrieve_for_graph", retrieve_for_graph_node)
     graph.add_node("respond", respond_node)
     graph.add_node("verify", verify_node)
-    graph.add_edge(START, "retrieve")
-    graph.add_edge("retrieve", "respond")
+
+    graph.add_edge(START, "classify")
+    graph.add_conditional_edges(
+        "classify",
+        _route_after_classify,
+        {
+            "retrieve_for_chat": "retrieve_for_chat",
+            "fetch_summaries": "fetch_summaries",
+            "retrieve_for_graph": "retrieve_for_graph",
+        },
+    )
+    graph.add_edge("retrieve_for_chat", "respond")
+    graph.add_edge("fetch_summaries", "respond")
+    graph.add_edge("retrieve_for_graph", "respond")
     graph.add_edge("respond", "verify")
     graph.add_edge("verify", END)
     return graph.compile()
