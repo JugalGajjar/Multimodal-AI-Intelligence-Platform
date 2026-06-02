@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from app.core.config import settings
+from app.core.metrics import time_llm
 
 
 class GroqChatError(Exception):
@@ -31,9 +32,10 @@ async def chat_completion(
     except ImportError as exc:
         raise GroqChatError(500, {"detail": f"groq SDK not installed: {exc}"}) from exc
 
+    chosen_model = model or settings.groq_reasoning_model
     client = AsyncGroq(api_key=settings.groq_api_key, timeout=timeout)
     create_kwargs: dict = {
-        "model": model or settings.groq_reasoning_model,
+        "model": chosen_model,
         "messages": messages,
         "temperature": temperature,
         "max_completion_tokens": max_tokens or 4096,
@@ -41,23 +43,28 @@ async def chat_completion(
     if response_format is not None:
         create_kwargs["response_format"] = response_format
 
-    try:
-        completion = await client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
-    except Exception as exc:  # noqa: BLE001  — Groq SDK raises various subclasses
-        status_attr = getattr(exc, "status_code", None) or getattr(exc, "status", None)
-        status_code = int(status_attr) if status_attr is not None else 502
+    async with time_llm("groq", chosen_model) as metric:
         try:
-            body = (
-                getattr(exc, "body", None) or getattr(exc, "response", None) or {"error": str(exc)}
-            )
-        except Exception:  # noqa: BLE001
-            body = {"error": str(exc)}
-        raise GroqChatError(status_code, body) from exc
+            completion = await client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001  — Groq SDK raises various subclasses
+            status_attr = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+            status_code = int(status_attr) if status_attr is not None else 502
+            metric["status"] = status_code
+            try:
+                body = (
+                    getattr(exc, "body", None)
+                    or getattr(exc, "response", None)
+                    or {"error": str(exc)}
+                )
+            except Exception:  # noqa: BLE001
+                body = {"error": str(exc)}
+            raise GroqChatError(status_code, body) from exc
 
-    try:
-        content = completion.choices[0].message.content
-    except (AttributeError, IndexError) as exc:
-        raise GroqChatError(502, {"detail": "unexpected Groq response shape"}) from exc
+        try:
+            content = completion.choices[0].message.content
+        except (AttributeError, IndexError) as exc:
+            metric["status"] = 502
+            raise GroqChatError(502, {"detail": "unexpected Groq response shape"}) from exc
 
     return str(content or "")
 
@@ -79,27 +86,32 @@ async def stream_chat_completion(
     except ImportError as exc:
         raise GroqChatError(500, {"detail": f"groq SDK not installed: {exc}"}) from exc
 
+    chosen_model = model or settings.groq_reasoning_model
     client = AsyncGroq(api_key=settings.groq_api_key, timeout=timeout)
     create_kwargs: dict = {
-        "model": model or settings.groq_reasoning_model,
+        "model": chosen_model,
         "messages": messages,
         "temperature": temperature,
         "max_completion_tokens": max_tokens or 4096,
         "stream": True,
     }
 
-    try:
-        stream = await client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
-    except Exception as exc:  # noqa: BLE001
-        status_attr = getattr(exc, "status_code", None) or getattr(exc, "status", None)
-        status_code = int(status_attr) if status_attr is not None else 502
-        body = getattr(exc, "body", None) or getattr(exc, "response", None) or {"error": str(exc)}
-        raise GroqChatError(status_code, body) from exc
-
-    async for chunk in stream:
+    async with time_llm("groq-stream", chosen_model) as metric:
         try:
-            delta = chunk.choices[0].delta.content
-        except (AttributeError, IndexError):
-            continue
-        if delta:
-            yield str(delta)
+            stream = await client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001
+            status_attr = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+            status_code = int(status_attr) if status_attr is not None else 502
+            metric["status"] = status_code
+            body = (
+                getattr(exc, "body", None) or getattr(exc, "response", None) or {"error": str(exc)}
+            )
+            raise GroqChatError(status_code, body) from exc
+
+        async for chunk in stream:
+            try:
+                delta = chunk.choices[0].delta.content
+            except (AttributeError, IndexError):
+                continue
+            if delta:
+                yield str(delta)

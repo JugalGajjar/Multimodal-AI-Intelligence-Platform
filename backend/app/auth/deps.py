@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
 from app.auth.security import decode_access_token
+from app.core.logging import user_id_var
 from app.db.session import get_db
 
 bearer_scheme = HTTPBearer(auto_error=True)
@@ -40,4 +41,5 @@ async def get_current_user(
     user = await db.get(User, user_id)
     if user is None:
         raise _credentials_exception
+    user_id_var.set(str(user.id))
     return user

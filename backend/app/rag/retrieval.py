@@ -1,5 +1,6 @@
 """Top-K vector retrieval from Qdrant, scoped to the calling user."""
 
+import time
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
@@ -7,6 +8,7 @@ from uuid import UUID
 from qdrant_client.http import models as qmodels
 from qdrant_client.http.exceptions import UnexpectedResponse
 
+from app.core.metrics import retrieval_duration_seconds
 from app.embeddings import embed_query
 from app.storage.qdrant_client import COLLECTION_NAME, get_qdrant_client
 
@@ -28,47 +30,51 @@ def retrieve(
     document_ids: list[UUID] | None = None,
 ) -> list[RetrievedChunk]:
     # Always filters by user_id. Empty list when nothing matches.
-    vector = embed_query(query)
-
-    must: list[qmodels.Condition] = [
-        qmodels.FieldCondition(
-            key="user_id",
-            match=qmodels.MatchValue(value=str(user_id)),
-        )
-    ]
-    if document_ids:
-        must.append(
-            qmodels.FieldCondition(
-                key="document_id",
-                match=qmodels.MatchAny(any=[str(d) for d in document_ids]),
-            )
-        )
-
-    client = get_qdrant_client()
+    start = time.perf_counter()
     try:
-        response = client.query_points(
-            collection_name=COLLECTION_NAME,
-            query=vector,
-            limit=top_k,
-            query_filter=qmodels.Filter(must=cast(list, must)),
-            with_payload=True,
-        )
-    except UnexpectedResponse as exc:
-        # Collection-not-found on a fresh stack is benign; other errors are not.
-        if getattr(exc, "status_code", None) == 404:
-            return []
-        raise
+        vector = embed_query(query)
 
-    chunks: list[RetrievedChunk] = []
-    for hit in response.points:
-        payload = hit.payload or {}
-        chunks.append(
-            RetrievedChunk(
-                chunk_id=str(payload.get("chunk_id", "")),
-                document_id=str(payload.get("document_id", "")),
-                chunk_index=int(payload.get("chunk_index", 0)),
-                score=float(hit.score),
-                text=str(payload.get("text", "")),
+        must: list[qmodels.Condition] = [
+            qmodels.FieldCondition(
+                key="user_id",
+                match=qmodels.MatchValue(value=str(user_id)),
             )
-        )
-    return chunks
+        ]
+        if document_ids:
+            must.append(
+                qmodels.FieldCondition(
+                    key="document_id",
+                    match=qmodels.MatchAny(any=[str(d) for d in document_ids]),
+                )
+            )
+
+        client = get_qdrant_client()
+        try:
+            response = client.query_points(
+                collection_name=COLLECTION_NAME,
+                query=vector,
+                limit=top_k,
+                query_filter=qmodels.Filter(must=cast(list, must)),
+                with_payload=True,
+            )
+        except UnexpectedResponse as exc:
+            # Collection-not-found on a fresh stack is benign; other errors are not.
+            if getattr(exc, "status_code", None) == 404:
+                return []
+            raise
+
+        chunks: list[RetrievedChunk] = []
+        for hit in response.points:
+            payload = hit.payload or {}
+            chunks.append(
+                RetrievedChunk(
+                    chunk_id=str(payload.get("chunk_id", "")),
+                    document_id=str(payload.get("document_id", "")),
+                    chunk_index=int(payload.get("chunk_index", 0)),
+                    score=float(hit.score),
+                    text=str(payload.get("text", "")),
+                )
+            )
+        return chunks
+    finally:
+        retrieval_duration_seconds.observe(time.perf_counter() - start)

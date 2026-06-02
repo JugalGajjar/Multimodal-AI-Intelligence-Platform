@@ -17,6 +17,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agents.intent_router import DEFAULT_INTENT, Intent, classify_intent
 from app.agents.verification import VerificationResult, verify_answer
 from app.core.config import settings
+from app.core.metrics import time_node_async
 from app.documents.service import list_summaries_for_user
 from app.rag.graph_expansion import GraphFact, expand_with_graph
 from app.rag.groq_chat import chat_completion
@@ -62,18 +63,20 @@ async def _safe_expand(query: str, chunks, user_id, *, max_hops=None) -> list[Gr
 
 
 async def classify_node(state: ChatState) -> dict[str, Any]:
-    intent = await classify_intent(state["query"])
+    async with time_node_async("classify"):
+        intent = await classify_intent(state["query"])
     return {"intent": intent}
 
 
 async def retrieve_for_chat_node(state: ChatState) -> dict[str, Any]:
-    chunks = retrieve(
-        query=state["query"],
-        user_id=state["user_id"],
-        top_k=state.get("top_k", 5),
-        document_ids=state.get("document_ids"),
-    )
-    graph_facts = await _safe_expand(state["query"], chunks, state["user_id"])
+    async with time_node_async("retrieve_for_chat"):
+        chunks = retrieve(
+            query=state["query"],
+            user_id=state["user_id"],
+            top_k=state.get("top_k", 5),
+            document_ids=state.get("document_ids"),
+        )
+        graph_facts = await _safe_expand(state["query"], chunks, state["user_id"])
 
     return {
         "chunks": chunks,
@@ -84,9 +87,10 @@ async def retrieve_for_chat_node(state: ChatState) -> dict[str, Any]:
 
 
 async def fetch_summaries_node(state: ChatState) -> dict[str, Any]:
-    summaries = await list_summaries_for_user(
-        state["user_id"], limit=settings.router_max_summary_docs
-    )
+    async with time_node_async("fetch_summaries"):
+        summaries = await list_summaries_for_user(
+            state["user_id"], limit=settings.router_max_summary_docs
+        )
     return {
         "doc_summaries": summaries,
         "chunks": [],
@@ -98,10 +102,11 @@ async def fetch_summaries_node(state: ChatState) -> dict[str, Any]:
 
 async def retrieve_for_graph_node(state: ChatState) -> dict[str, Any]:
     # Graph-only path: no vector chunks, broader graph walk for richer context.
-    chunks: list[RetrievedChunk] = []
-    graph_facts = await _safe_expand(
-        state["query"], chunks, state["user_id"], max_hops=settings.graph_max_hops
-    )
+    async with time_node_async("retrieve_for_graph"):
+        chunks: list[RetrievedChunk] = []
+        graph_facts = await _safe_expand(
+            state["query"], chunks, state["user_id"], max_hops=settings.graph_max_hops
+        )
 
     return {
         "chunks": chunks,
@@ -141,7 +146,8 @@ def build_respond_messages(state: ChatState) -> list[dict[str, str]]:
 
 async def respond_node(state: ChatState) -> dict[str, Any]:
     # Lets GroqChatError propagate so the router can map upstream status codes.
-    answer = await chat_completion(messages=build_respond_messages(state))
+    async with time_node_async("respond"):
+        answer = await chat_completion(messages=build_respond_messages(state))
     return {
         "answer": answer,
         "model": settings.groq_reasoning_model,
@@ -179,11 +185,12 @@ async def prepare_context_state(
 async def verify_node(state: ChatState) -> dict[str, Any]:
     # verify_answer maps every failure mode to a `skipped` verdict, so the
     # chat response never fails because of verification.
-    result = await verify_answer(
-        answer=state.get("answer", ""),
-        chunks=state.get("chunks") or [],
-        graph_facts=state.get("graph_facts") or [],
-    )
+    async with time_node_async("verify"):
+        result = await verify_answer(
+            answer=state.get("answer", ""),
+            chunks=state.get("chunks") or [],
+            graph_facts=state.get("graph_facts") or [],
+        )
     return {"verification": result}
 
 
