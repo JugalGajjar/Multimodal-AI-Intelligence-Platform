@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -34,9 +33,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
 import {
-  sendChatQuery,
+  streamChatQuery,
   type ChatCitation,
   type ChatResponse,
+  type ChatStreamMeta,
   type ChatVerification,
   type VerificationVerdict,
 } from "@/lib/chat-api";
@@ -55,22 +55,69 @@ function errorMessage(err: unknown): string {
       return "Chat is not configured — the OpenRouter API key is missing.";
     return `Request failed (${err.status}).`;
   }
+  if (err && typeof err === "object" && "status" in err && "detail" in err) {
+    const { status: s, detail } = err as { status: number; detail: string };
+    if (s === 429) return "Free-tier rate limit hit. Wait a few seconds and retry.";
+    if (s === 503) return "Chat is not configured — the model provider key is missing.";
+    return `Request failed (${s}): ${detail}`;
+  }
   return "Network error. Try again.";
 }
+
+type StreamState = {
+  status: "idle" | "streaming" | "done" | "error";
+  meta: ChatStreamMeta | null;
+  text: string;
+  verification: ChatVerification | null;
+  error: unknown | null;
+};
+
+const INITIAL_STREAM: StreamState = {
+  status: "idle",
+  meta: null,
+  text: "",
+  verification: null,
+  error: null,
+};
 
 export function ChatPanel() {
   const token = useAuthStore((s) => s.token);
   const [query, setQuery] = useState("");
+  const [stream, setStream] = useState<StreamState>(INITIAL_STREAM);
+  const pending = stream.status === "streaming";
 
-  const mutation = useMutation<ChatResponse, unknown, string>({
-    mutationFn: (q: string) => sendChatQuery(token!, { query: q, top_k: 4 }),
-  });
-
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!token || !query.trim()) return;
-    mutation.mutate(query.trim());
+    if (!token || !query.trim() || pending) return;
+
+    setStream({ ...INITIAL_STREAM, status: "streaming" });
+
+    try {
+      await streamChatQuery(
+        token,
+        { query: query.trim(), top_k: 4 },
+        {
+          onMeta: (meta) => setStream((s) => ({ ...s, meta })),
+          onToken: (text) =>
+            setStream((s) => ({ ...s, text: s.text + text })),
+          onDone: (done) =>
+            setStream((s) => ({
+              ...s,
+              status: "done",
+              verification: done.verification,
+            })),
+          onError: (err) =>
+            setStream((s) => ({ ...s, status: "error", error: err })),
+        },
+      );
+      // If the stream ended without a `done` event, treat as complete.
+      setStream((s) => (s.status === "streaming" ? { ...s, status: "done" } : s));
+    } catch (err) {
+      setStream((s) => ({ ...s, status: "error", error: err }));
+    }
   }
+
+  const response = streamToResponse(stream);
 
   return (
     <Card className="glass w-full py-6">
@@ -84,7 +131,7 @@ export function ChatPanel() {
         </CardTitle>
         <CardDescription className="mt-1">
           Retrieval-augmented chat over your uploaded text, PDFs, images, and
-          audio. Answers are grounded and cited.
+          audio. Answers stream as the model thinks.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5 px-6 pt-2">
@@ -107,11 +154,11 @@ export function ChatPanel() {
             />
             <Button
               type="submit"
-              disabled={mutation.isPending || !query.trim()}
+              disabled={pending || !query.trim()}
               className="absolute bottom-3 right-3 bg-gradient-brand text-brand-foreground glow-brand px-4"
               size="sm"
             >
-              {mutation.isPending ? (
+              {pending ? (
                 <>
                   <Loader2
                     className="size-3.5 animate-spin"
@@ -129,30 +176,53 @@ export function ChatPanel() {
           </div>
         </form>
 
-        {mutation.isError && (
+        {stream.status === "error" && (
           <p
             role="alert"
             className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
           >
-            {errorMessage(mutation.error)}
+            {errorMessage(stream.error)}
           </p>
         )}
 
-        {mutation.data && <Answer response={mutation.data} />}
+        {response && <Answer response={response} streaming={pending} />}
       </CardContent>
     </Card>
   );
 }
 
-function Answer({ response }: { response: ChatResponse }) {
+function streamToResponse(stream: StreamState): ChatResponse | null {
+  if (!stream.meta && stream.text === "" && stream.status !== "done") return null;
+  const meta = stream.meta;
+  return {
+    answer: stream.text,
+    citations: meta?.citations ?? [],
+    entities_used: meta?.entities_used ?? [],
+    model: meta?.model ?? "",
+    used_context: meta?.used_context ?? false,
+    used_graph: meta?.used_graph ?? false,
+    verification: stream.verification ?? undefined,
+    intent: meta?.intent,
+  };
+}
+
+function Answer({
+  response,
+  streaming = false,
+}: {
+  response: ChatResponse;
+  streaming?: boolean;
+}) {
   const { data: graphData, highlighted, hasGraph } = chatToGraphProps(response);
 
   return (
     <div className="space-y-5 pt-2" data-testid="chat-answer">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline" className="font-mono text-[10px]">
-          {response.model}
-        </Badge>
+        {response.model && (
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {response.model}
+          </Badge>
+        )}
         {response.intent && response.intent !== "chat" && (
           <IntentBadge intent={response.intent} />
         )}
@@ -176,7 +246,16 @@ function Answer({ response }: { response: ChatResponse }) {
       </div>
 
       <div className="rounded-xl border border-border/60 bg-background/50 px-5 py-4 text-sm leading-relaxed">
-        <p className="whitespace-pre-wrap">{response.answer}</p>
+        <p className="whitespace-pre-wrap" data-testid="chat-answer-text">
+          {response.answer}
+          {streaming && (
+            <span
+              aria-hidden="true"
+              className="ml-0.5 inline-block h-3.5 w-1.5 -translate-y-px animate-pulse bg-[color:var(--brand)]"
+              data-testid="streaming-cursor"
+            />
+          )}
+        </p>
       </div>
 
       {response.verification &&

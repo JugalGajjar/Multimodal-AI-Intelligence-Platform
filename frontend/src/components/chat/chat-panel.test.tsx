@@ -31,10 +31,48 @@ function renderWithQuery(ui: ReactNode) {
   );
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
+type AnyBody = Record<string, unknown>;
+
+/**
+ * Wraps a chat-response body into a server-sent-events stream the way the
+ * real backend emits it (meta → tokens → done).
+ */
+function sseFromBody(body: AnyBody): Response {
+  const encoder = new TextEncoder();
+  const meta = {
+    intent: body.intent ?? "chat",
+    used_context: !!body.used_context,
+    used_graph: !!body.used_graph,
+    model: body.model ?? "",
+    citations: body.citations ?? [],
+    entities_used: body.entities_used ?? [],
+  };
+  const answer = (body.answer ?? "") as string;
+  // Split into a few chunks so tests can observe streaming if they want to.
+  const tokens =
+    answer.length === 0 ? [] : [answer.slice(0, Math.ceil(answer.length / 2)), answer.slice(Math.ceil(answer.length / 2))];
+  const done = { verification: body.verification ?? null };
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`),
+      );
+      for (const t of tokens) {
+        controller.enqueue(
+          encoder.encode(`event: token\ndata: ${JSON.stringify({ text: t })}\n\n`),
+        );
+      }
+      controller.enqueue(
+        encoder.encode(`event: done\ndata: ${JSON.stringify(done)}\n\n`),
+      );
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
   });
 }
 
@@ -106,7 +144,7 @@ describe("<ChatPanel />", () => {
     });
 
     // Resolve the fetch — the answer should now render.
-    resolveFetch(jsonResponse(SUCCESS_BODY));
+    resolveFetch(sseFromBody(SUCCESS_BODY));
 
     await waitFor(() => {
       expect(screen.getByTestId("chat-answer")).toBeInTheDocument();
@@ -128,9 +166,9 @@ describe("<ChatPanel />", () => {
     expect(within(items[0]).getByText(/score 0\.812/)).toBeInTheDocument();
     expect(within(items[1]).getByText(/second chunk preview/i)).toBeInTheDocument();
 
-    // POST went to /chat with Bearer
+    // POST went to /chat/stream with Bearer
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toMatch(/\/api\/v1\/chat$/);
+    expect(url).toMatch(/\/api\/v1\/chat\/stream$/);
     expect((init as RequestInit).method).toBe("POST");
     expect((init as RequestInit).headers).toMatchObject({
       Authorization: "Bearer tok-abc",
@@ -141,7 +179,7 @@ describe("<ChatPanel />", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        jsonResponse({
+        sseFromBody({
           answer: "I have no documents to answer from.",
           citations: [],
           model: "m",
@@ -246,7 +284,7 @@ describe("<ChatPanel />", () => {
     it("renders the inline graph + 'used graph' badge when used_graph=true", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(jsonResponse(GRAPH_BODY)),
+        vi.fn().mockResolvedValue(sseFromBody(GRAPH_BODY)),
       );
 
       renderWithQuery(<ChatPanel />);
@@ -271,7 +309,7 @@ describe("<ChatPanel />", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue(
-          jsonResponse({
+          sseFromBody({
             ...GRAPH_BODY,
             used_graph: false,
             entities_used: [],
@@ -293,7 +331,7 @@ describe("<ChatPanel />", () => {
     it("'Explore full graph' link points at /dashboard/graph", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(jsonResponse(GRAPH_BODY)),
+        vi.fn().mockResolvedValue(sseFromBody(GRAPH_BODY)),
       );
 
       renderWithQuery(<ChatPanel />);
@@ -348,7 +386,7 @@ describe("<ChatPanel />", () => {
     it("renders a green verified badge on full groundedness", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(jsonResponse(verifiedBody("verified"))),
+        vi.fn().mockResolvedValue(sseFromBody(verifiedBody("verified"))),
       );
 
       renderWithQuery(<ChatPanel />);
@@ -363,7 +401,7 @@ describe("<ChatPanel />", () => {
     it("renders an amber partial badge with the unsupported-claims panel collapsed by default", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(jsonResponse(verifiedBody("partial"))),
+        vi.fn().mockResolvedValue(sseFromBody(verifiedBody("partial"))),
       );
 
       renderWithQuery(<ChatPanel />);
@@ -384,7 +422,7 @@ describe("<ChatPanel />", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue(
-          jsonResponse(
+          sseFromBody(
             verifiedBody("unsupported", {
               unsupported_claims: ["first bad claim", "second bad claim"],
             }),
@@ -409,7 +447,7 @@ describe("<ChatPanel />", () => {
     it("renders a muted 'not verified' badge and no panel when the verdict is skipped", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(jsonResponse(skippedBody("no context to verify against"))),
+        vi.fn().mockResolvedValue(sseFromBody(skippedBody("no context to verify against"))),
       );
 
       renderWithQuery(<ChatPanel />);
@@ -421,6 +459,104 @@ describe("<ChatPanel />", () => {
       expect(
         screen.queryByTestId("unsupported-claims-panel"),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe("streaming", () => {
+    it("shows a streaming cursor while tokens are arriving", async () => {
+      // Build a deferred-controller stream so the test holds the connection
+      // open after the first token, mid-flight.
+      const encoder = new TextEncoder();
+      let push!: (chunk: string) => void;
+      let close!: () => void;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          push = (s) => controller.enqueue(encoder.encode(s));
+          close = () => controller.close();
+        },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(stream, {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        ),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "stream please");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      // Emit meta + first token, then yield to React.
+      push(
+        `event: meta\ndata: ${JSON.stringify({
+          intent: "chat",
+          used_context: true,
+          used_graph: false,
+          model: "m",
+          citations: [],
+          entities_used: [],
+        })}\n\n`,
+      );
+      push(`event: token\ndata: ${JSON.stringify({ text: "Hello " })}\n\n`);
+
+      const cursor = await screen.findByTestId("streaming-cursor");
+      expect(cursor).toBeInTheDocument();
+      expect(screen.getByTestId("chat-answer-text")).toHaveTextContent(/hello/i);
+
+      // Finish the stream — the cursor should disappear once done arrives.
+      push(`event: token\ndata: ${JSON.stringify({ text: "world." })}\n\n`);
+      push(
+        `event: done\ndata: ${JSON.stringify({
+          verification: {
+            verdict: "skipped",
+            groundedness_score: 0,
+            total_claims: 0,
+            supported_claims: 0,
+            unsupported_claims: [],
+            skip_reason: "",
+          },
+        })}\n\n`,
+      );
+      close();
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("streaming-cursor")).not.toBeInTheDocument();
+      });
+      expect(screen.getByTestId("chat-answer-text")).toHaveTextContent(
+        /hello world\./i,
+      );
+    });
+
+    it("surfaces an SSE error event as the answer error", async () => {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `event: error\ndata: ${JSON.stringify({ status: 429, detail: "rate limited" })}\n\n`,
+            ),
+          );
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(stream, {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        ),
+      );
+
+      renderWithQuery(<ChatPanel />);
+      await userEvent.type(screen.getByLabelText(/question/i), "anything");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/rate limit/i);
     });
   });
 
@@ -440,7 +576,7 @@ describe("<ChatPanel />", () => {
     it("does NOT render the intent badge for the default chat route", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(jsonResponse(bodyWithIntent("chat"))),
+        vi.fn().mockResolvedValue(sseFromBody(bodyWithIntent("chat"))),
       );
 
       renderWithQuery(<ChatPanel />);
@@ -454,7 +590,7 @@ describe("<ChatPanel />", () => {
     it("renders a 'summary route' badge when the router picked summarize", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(jsonResponse(bodyWithIntent("summarize"))),
+        vi.fn().mockResolvedValue(sseFromBody(bodyWithIntent("summarize"))),
       );
 
       renderWithQuery(<ChatPanel />);
@@ -468,7 +604,7 @@ describe("<ChatPanel />", () => {
     it("renders a 'graph route' badge when the router picked explain_graph", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(jsonResponse(bodyWithIntent("explain_graph"))),
+        vi.fn().mockResolvedValue(sseFromBody(bodyWithIntent("explain_graph"))),
       );
 
       renderWithQuery(<ChatPanel />);

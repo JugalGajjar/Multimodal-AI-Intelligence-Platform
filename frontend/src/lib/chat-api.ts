@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api";
+import { API_BASE_URL, ApiError, apiFetch } from "@/lib/api";
 
 export type ChatCitation = {
   chunk_id: string;
@@ -68,4 +68,101 @@ export function sendChatQuery(
     method: "POST",
     body: JSON.stringify(request),
   });
+}
+
+export type ChatStreamMeta = {
+  intent: ChatIntent | string;
+  used_context: boolean;
+  used_graph: boolean;
+  model: string;
+  citations: ChatCitation[];
+  entities_used: ChatEntityUsed[];
+};
+
+export type ChatStreamDone = {
+  verification: ChatVerification;
+};
+
+export type ChatStreamHandlers = {
+  onMeta?: (meta: ChatStreamMeta) => void;
+  onToken?: (text: string) => void;
+  onDone?: (done: ChatStreamDone) => void;
+  onError?: (error: { status: number; detail: string }) => void;
+};
+
+/**
+ * Parse one SSE block (event + data lines separated by `\n`).
+ */
+function parseSseBlock(block: string): { event: string; data: string } | null {
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const line of block.split("\n")) {
+    if (line.startsWith(":")) continue; // SSE comment
+    if (line.startsWith("event: ")) event = line.slice(7).trim();
+    else if (line.startsWith("data: ")) dataLines.push(line.slice(6));
+  }
+  if (dataLines.length === 0) return null;
+  return { event, data: dataLines.join("\n") };
+}
+
+export async function streamChatQuery(
+  token: string,
+  request: ChatRequest,
+  handlers: ChatStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/chat/stream`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(request),
+    signal,
+  });
+
+  if (!response.ok || !response.body) {
+    const text = await response.text();
+    let body: unknown = text;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // body stays as raw text
+    }
+    throw new ApiError(
+      `Stream failed: ${response.status} ${response.statusText}`,
+      response.status,
+      body,
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const parsed = parseSseBlock(block);
+      if (parsed) {
+        try {
+          const data = JSON.parse(parsed.data);
+          if (parsed.event === "meta") handlers.onMeta?.(data as ChatStreamMeta);
+          else if (parsed.event === "token") handlers.onToken?.(data.text);
+          else if (parsed.event === "done") handlers.onDone?.(data as ChatStreamDone);
+          else if (parsed.event === "error") handlers.onError?.(data);
+        } catch {
+          // Skip malformed blocks.
+        }
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
 }

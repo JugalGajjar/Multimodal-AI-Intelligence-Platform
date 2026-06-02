@@ -120,8 +120,12 @@ def _route_after_classify(state: ChatState) -> str:
     return "retrieve_for_chat"
 
 
-async def respond_node(state: ChatState) -> dict[str, Any]:
-    # Lets GroqChatError propagate so the router can map upstream status codes.
+def build_respond_messages(state: ChatState) -> list[dict[str, str]]:
+    """Assemble the system + user messages for the respond call.
+
+    Exposed so the streaming endpoint can build the exact same prompt the
+    non-streaming path uses.
+    """
     chunks = state.get("chunks") or []
     graph_facts = state.get("graph_facts") or []
     summaries = state.get("doc_summaries") or []
@@ -129,18 +133,47 @@ async def respond_node(state: ChatState) -> dict[str, Any]:
     has_context = bool(chunks or graph_facts or summaries)
     system = SYSTEM_PROMPT if has_context else NO_CONTEXT_FALLBACK_SYSTEM
     user_msg = build_user_message(state["query"], chunks, facts=graph_facts, summaries=summaries)
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_msg},
+    ]
 
-    answer = await chat_completion(
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_msg},
-        ],
-    )
 
+async def respond_node(state: ChatState) -> dict[str, Any]:
+    # Lets GroqChatError propagate so the router can map upstream status codes.
+    answer = await chat_completion(messages=build_respond_messages(state))
     return {
         "answer": answer,
         "model": settings.groq_reasoning_model,
     }
+
+
+async def prepare_context_state(
+    *,
+    query: str,
+    user_id: UUID,
+    top_k: int = 5,
+    document_ids: list[UUID] | None = None,
+) -> ChatState:
+    """Run classify + the appropriate retrieve branch, returning a populated
+    state ready for either `respond_node` or a streaming completion."""
+    state: ChatState = {
+        "query": query,
+        "user_id": user_id,
+        "top_k": top_k,
+        "document_ids": document_ids,
+    }
+    intent = await classify_intent(query)
+    state["intent"] = intent
+
+    if intent == "summarize":
+        state.update(await fetch_summaries_node(state))  # type: ignore[typeddict-item]
+    elif intent == "explain_graph":
+        state.update(await retrieve_for_graph_node(state))  # type: ignore[typeddict-item]
+    else:
+        state.update(await retrieve_for_chat_node(state))  # type: ignore[typeddict-item]
+
+    return state
 
 
 async def verify_node(state: ChatState) -> dict[str, Any]:

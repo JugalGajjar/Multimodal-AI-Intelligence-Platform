@@ -142,26 +142,31 @@ test.describe("/dashboard/graph full graph page", () => {
   test("inline graph 'Explore full graph' link navigates here end-to-end", async ({
     page,
   }) => {
-    // Mock the chat endpoint to return a graph-enabled response
-    await page.route("**/api/v1/chat", async (route) => {
+    await page.route("**/api/v1/chat/stream", async (route) => {
+      const meta = {
+        intent: "chat",
+        used_context: false,
+        used_graph: true,
+        model: "openai/gpt-oss-20b",
+        citations: [],
+        entities_used: [
+          {
+            name: "Qdrant",
+            type: "Technology",
+            description: "vector DB",
+            relations: [],
+          },
+        ],
+      };
+      const answer = "Qdrant is the vector database used by the platform.";
+      const body =
+        `event: meta\ndata: ${JSON.stringify(meta)}\n\n` +
+        `event: token\ndata: ${JSON.stringify({ text: answer })}\n\n` +
+        `event: done\ndata: ${JSON.stringify({ verification: null })}\n\n`;
       await route.fulfill({
         status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          answer: "Qdrant is the vector database used by the platform.",
-          citations: [],
-          entities_used: [
-            {
-              name: "Qdrant",
-              type: "Technology",
-              description: "vector DB",
-              relations: [],
-            },
-          ],
-          model: "openai/gpt-oss-20b",
-          used_context: false,
-          used_graph: true,
-        }),
+        contentType: "text/event-stream",
+        body,
       });
     });
     await page.route("**/api/v1/graph/snapshot*", async (route) => {
