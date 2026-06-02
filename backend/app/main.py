@@ -3,12 +3,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from app import __version__
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.middleware import HttpMetricsMiddleware, RequestIdMiddleware
+from app.core.tracing import configure_tracing
 
 
 @asynccontextmanager
@@ -18,6 +20,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     configure_logging("DEBUG" if settings.app_debug else "INFO")
+    configure_tracing(settings.otel_service_name)
 
     app = FastAPI(
         title="Multimodal AI Intelligence Platform",
@@ -41,6 +44,9 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router, prefix="/api/v1")
+
+    # FastAPI instrumentation creates spans for every route handler.
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="/api/v1/metrics,/api/v1/health")
     return app
 
 

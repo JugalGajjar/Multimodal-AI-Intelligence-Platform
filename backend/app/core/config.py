@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # Used by the summarize branch to bound the context that's fed back.
     router_max_summary_docs: int = 5
 
+    # Distributed tracing. When disabled, spans become no-ops with zero cost.
+    otel_enabled: bool = True
+    otel_service_name: str = "mmap-backend"
+    otel_endpoint: str = "http://jaeger:4317"
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.backend_cors_origins.split(",") if o.strip()]

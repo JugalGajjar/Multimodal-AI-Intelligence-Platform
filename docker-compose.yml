@@ -241,6 +241,22 @@ services:
     networks:
       - mmap-net
 
+  # ----------------------------------------------------------
+  # Jaeger — distributed tracing backend (OTLP receiver + UI)
+  # ----------------------------------------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: mmap-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+    networks:
+      - mmap-net
+
   # Creates the default bucket on first boot
   minio-init:
     image: minio/mc:latest

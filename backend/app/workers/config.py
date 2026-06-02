@@ -2,6 +2,7 @@
 
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.core.tracing import configure_tracing
 from app.workers.queue import QUEUE_NAME, redis_settings
 from app.workers.tasks import (
     process_document_ocr,
@@ -12,6 +13,7 @@ from app.workers.tasks import (
 
 async def _on_startup(_ctx: dict) -> None:
     configure_logging("DEBUG" if settings.app_debug else "INFO")
+    configure_tracing("mmap-worker")
 
 
 class WorkerSettings:
