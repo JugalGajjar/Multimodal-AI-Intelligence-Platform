@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# Production frontend image — multi-stage Next.js build.
+#
+# 1. deps     — install node_modules with ci.
+# 2. builder  — run `next build` to generate the standalone bundle.
+# 3. runtime  — copy only the standalone bundle + static assets to a slim base.
+# ---------------------------------------------------------------------------
+
+FROM node:22-alpine AS deps
+WORKDIR /app
+RUN apk add --no-cache libc6-compat
+COPY package.json package-lock.json* ./
+RUN npm ci --ignore-scripts
+
+
+FROM node:22-alpine AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+RUN apk add --no-cache wget \
+    && addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 --ingroup nodejs nextjs
+
+# Static assets and the standalone server bundle.
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=10 \
+    CMD wget -qO- http://localhost:3000 >/dev/null || exit 1
+
+CMD ["node", "server.js"]

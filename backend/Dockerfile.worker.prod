@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# Production worker image — multi-stage build.
+# Keeps the OCR system packages (tesseract, poppler, libgl1) in runtime;
+# drops build-essential and the [dev] python extras.
+# ---------------------------------------------------------------------------
+
+FROM python:3.12-slim AS builder
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY pyproject.toml README.md ./
+RUN mkdir -p app && touch app/__init__.py \
+    && pip install --upgrade pip wheel setuptools \
+    && pip install . \
+    && (pip install ".[worker]" || \
+       (echo "WARN: worker extras failed; installing fallbacks" \
+        && pip install pytesseract pdf2image Pillow numpy))
+
+
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    PATH="/opt/venv/bin:$PATH" \
+    HF_HOME=/app/.cache/huggingface \
+    XDG_CACHE_HOME=/app/.cache
+
+# Runtime-only OCR system packages (no build-essential).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        poppler-utils \
+        libgl1 \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system --gid 1001 app \
+    && adduser --system --uid 1001 --ingroup app --no-create-home app
+
+WORKDIR /app
+
+# Self-contained venv from the builder stage.
+COPY --from=builder /opt/venv /opt/venv
+
+# Pre-download the embedding model so the first request doesn't pay the
+# Hugging Face round-trip and so an offline container keeps working.
+RUN mkdir -p /app/.cache/huggingface \
+    && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
+
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
+RUN chown -R app:app /app
+
+USER app
+
+CMD ["arq", "app.workers.config.WorkerSettings"]

@@ -1,0 +1,82 @@
+# Production overlay: bake source into images, drop dev volumes, harden hcs.
+#
+# Use: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# The base file already defines the network, named volumes, ports, and
+# inter-service dependencies. This overlay only changes what differs from
+# dev: build target, no source mounts, prod env, tighter restart policy.
+
+services:
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:?must set in prod}"
+    # Bake source in at build time; no dev volume mounts.
+    # `!reset` clears the bind mounts inherited from the base dev file so
+    # the baked-in image content isn't overwritten by the host source tree.
+    volumes: !reset null
+    restart: always
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+    # `!reset` clears the bind mounts inherited from the base dev file so
+    # the baked-in image content isn't overwritten by the host source tree.
+    volumes: !reset null
+    restart: always
+    # 2 workers via uvicorn keep request throughput reasonable on a small VM.
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker.prod
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+    # `!reset` clears the bind mounts inherited from the base dev file so
+    # the baked-in image content isn't overwritten by the host source tree.
+    volumes: !reset null
+    restart: always
+
+  postgres:
+    restart: always
+    # Production DBs typically come with a managed backup story; this overlay
+    # just keeps the container alive. Swap to a managed RDS/Cloud SQL when
+    # deploying for real and remove this service from the prod compose.
+
+  qdrant:
+    restart: always
+
+  redis:
+    restart: always
+
+  neo4j:
+    restart: always
+
+  minio:
+    restart: always
+
+  # Reverse proxy still routes app.localhost in dev. For real deployments,
+  # replace the rules below with your domain and add a TLS resolver.
+  traefik:
+    restart: always
+    # Disable the insecure dashboard in production.
+    command:
+      - "--api.dashboard=false"
+      - "--providers.docker=true"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+
+  # Jaeger is optional in prod — many teams ship to a managed APM instead.
+  # The base file's `jaeger` service stays available; override `otel_endpoint`
+  # via env when pointing at an external collector.

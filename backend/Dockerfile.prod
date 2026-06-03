@@ -1,0 +1,73 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# Production backend image — multi-stage build.
+#
+# stage 1 (builder): compile-time deps + populate a venv at /opt/venv.
+# stage 2 (runtime): copy only the venv + app source into a slim base.
+# ---------------------------------------------------------------------------
+
+FROM python:3.12-slim AS builder
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY pyproject.toml README.md ./
+RUN mkdir -p app && touch app/__init__.py \
+    && pip install --upgrade pip wheel setuptools \
+    && pip install .
+
+
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    PATH="/opt/venv/bin:$PATH" \
+    HF_HOME=/app/.cache/huggingface \
+    XDG_CACHE_HOME=/app/.cache
+
+# Only the small set of runtime tools we actually need at request time.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system --gid 1001 app \
+    && adduser --system --uid 1001 --ingroup app --no-create-home app
+
+WORKDIR /app
+
+# Self-contained venv from the builder stage — no pip install at runtime.
+COPY --from=builder /opt/venv /opt/venv
+
+# Pre-download the embedding model — chat calls `embed_query` on every turn;
+# baking it in avoids a Hugging Face round-trip on first use and keeps the
+# container working when HF is unreachable.
+RUN mkdir -p /app/.cache/huggingface \
+    && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
+
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh && chown -R app:app /app
+
+USER app
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=10 \
+    CMD curl -sf http://localhost:8000/api/v1/health || exit 1
+
+ENTRYPOINT ["./entrypoint.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips=*"]
