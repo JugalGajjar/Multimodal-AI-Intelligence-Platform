@@ -1,0 +1,114 @@
+name: nightly — integration + e2e
+
+# Brings the full container stack up and runs the slow tests that need it.
+# Triggered on every push to main, nightly at 03:17 UTC, and on demand.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: backend integration (docker compose stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OTEL_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose up (dev stack)
+        run: |
+          # Copy the example env so compose has variable defaults.
+          cp .env.example .env
+          docker compose up -d postgres redis qdrant neo4j minio minio-init backend worker
+
+      - name: Wait for stack to be healthy
+        run: |
+          for i in $(seq 1 60); do
+            healthy=$(docker compose ps --format '{{.State}} {{.Health}}' | grep running | grep -c healthy || true)
+            echo "healthy services so far: $healthy"
+            if [ "$healthy" -ge 5 ]; then exit 0; fi
+            sleep 5
+          done
+          docker compose ps
+          docker compose logs backend
+          exit 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install host-side test deps
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: pytest integration
+        working-directory: backend
+        env:
+          POSTGRES_HOST: 127.0.0.1
+          REDIS_HOST: 127.0.0.1
+          QDRANT_HOST: 127.0.0.1
+          MINIO_ENDPOINT: 127.0.0.1:9000
+          NEO4J_URI: bolt://127.0.0.1:7687
+        run: pytest -q tests/integration
+
+      - name: Dump backend logs on failure
+        if: failure()
+        run: docker compose logs --tail 200 backend worker
+
+  e2e:
+    name: e2e (Playwright against dev stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose up (dev stack)
+        run: |
+          cp .env.example .env
+          docker compose up -d
+
+      - name: Wait for frontend
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:3000 || true)
+            echo "frontend: $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 5
+          done
+          docker compose ps
+          docker compose logs frontend
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Playwright deps
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright
+        run: npx playwright test --reporter=line
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7

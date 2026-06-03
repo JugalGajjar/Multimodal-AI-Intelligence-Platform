@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend — unit + lint + types
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OTEL_ENABLED: "false"
+      # Settings reads .env files; supply just enough to import the app.
+      JWT_SECRET: ci-test-secret-key
+      POSTGRES_HOST: localhost
+      REDIS_HOST: localhost
+      QDRANT_HOST: localhost
+      MINIO_ENDPOINT: localhost:9000
+      NEO4J_URI: bolt://localhost:7687
+      GROQ_API_KEY: ""
+      OPENROUTER_API_KEY: ""
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: ruff check
+        run: ruff check app tests
+
+      - name: ruff format --check
+        run: ruff format --check app tests
+
+      - name: mypy
+        run: mypy app
+
+      - name: pytest (unit)
+        run: pytest -q tests/ --ignore=tests/integration
+
+  frontend:
+    name: frontend — unit + tc + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: tsc --noEmit
+        run: npx tsc --noEmit
+
+      - name: eslint
+        run: npm run lint
+
+      - name: vitest
+        run: npx vitest run
