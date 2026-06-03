@@ -90,9 +90,8 @@ export type ChatStreamHandlers = {
   onError?: (error: { status: number; detail: string }) => void;
 };
 
-/**
- * Parse one SSE block (event + data lines separated by `\n`).
- */
+// Parse a single SSE block — one `event:` line followed by one or more
+// `data:` lines, terminated by a blank line.
 function parseSseBlock(block: string): { event: string; data: string } | null {
   let event = "message";
   const dataLines: string[] = [];
