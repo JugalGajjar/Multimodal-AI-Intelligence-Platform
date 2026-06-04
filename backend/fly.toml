@@ -1,0 +1,45 @@
+# Fly.io config for the backend API.
+# Deploy:  fly deploy --config fly.toml
+# Secrets: see docs/deploy.md for the full list (DATABASE_URL, REDIS_*,
+# QDRANT_URL/QDRANT_API_KEY, NEO4J_*, MINIO_*, JWT_SECRET, GROQ_API_KEY,
+# OPENROUTER_API_KEY, BACKEND_CORS_ORIGINS).
+
+app = "mmap-backend"
+primary_region = "iad"
+
+[build]
+dockerfile = "Dockerfile.prod"
+
+[env]
+APP_ENV = "production"
+APP_DEBUG = "false"
+BACKEND_HOST = "0.0.0.0"
+BACKEND_PORT = "8000"
+# Tracing off by default in prod — flip on and point OTEL_ENDPOINT at a
+# managed collector (Honeycomb, Grafana Cloud, etc.) when wanted.
+OTEL_ENABLED = "false"
+
+[http_service]
+internal_port = 8000
+force_https = true
+# Save money: machines stop when idle and wake on the next request.
+auto_stop_machines = "stop"
+auto_start_machines = true
+min_machines_running = 0
+processes = ["app"]
+
+[http_service.concurrency]
+type = "requests"
+soft_limit = 200
+hard_limit = 250
+
+[[http_service.checks]]
+interval = "15s"
+timeout = "5s"
+grace_period = "20s"
+method = "GET"
+path = "/api/v1/health"
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "1gb"
