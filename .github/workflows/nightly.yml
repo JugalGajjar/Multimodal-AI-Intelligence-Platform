@@ -27,7 +27,9 @@ jobs:
         run: |
           # Copy the example env so compose has variable defaults.
           cp .env.example .env
-          docker compose up -d postgres redis qdrant neo4j minio minio-init backend worker
+          # traefik is required by tests/integration/test_infra.py — it asserts
+          # the dashboard (:8080) and host-header routing (:80) both work.
+          docker compose up -d postgres redis qdrant neo4j minio minio-init backend worker traefik
 
       - name: Wait for stack to be healthy
         run: |
