@@ -198,16 +198,21 @@ def test_chat_response_includes_used_graph_flag(http, auth):
         assert r.status_code in (429, 502, 503)
 
 
-async def test_chat_with_unit_patched_llm(http, auth):
+async def test_chat_with_unit_patched_llm(http, auth, monkeypatch):
     """Patch chat_completion in-process to bypass OpenRouter rate-limits and
     deterministically verify the full retrieval + citation path. Async so it
     shares the session-scoped event loop with the asyncpg pool."""
     from sqlalchemy import select
 
     from app.auth.models import User
+    from app.core.config import settings
     from app.db.session import async_session_maker
     from app.rag import router as rag_router
     from app.rag.schemas import ChatRequest
+
+    # The chat endpoint short-circuits to 503 when no Groq key is configured.
+    # Stub a value so the patched chat_completion below actually gets reached.
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
 
     doc = upload_text(http, auth)
     assert wait_for_processed(http, auth, doc["id"]) == "processed"
