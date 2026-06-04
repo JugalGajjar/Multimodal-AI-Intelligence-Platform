@@ -104,8 +104,50 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
+      - name: Warm up worker (download embedding model)
+        # The dev worker image does not bake in BAAI/bge-small-en-v1.5; the
+        # first upload triggers a ~100 MB HuggingFace download that can blow
+        # past Playwright's per-test timeout. Process a throwaway doc here so
+        # the model is cached in the worker before the e2e suite runs.
+        run: |
+          set -e
+          EMAIL="warmup-$(date +%s)@evalbot.io"
+          PASS="WarmupP@ss123"
+          API=http://localhost:8000/api/v1
+
+          curl -sf -X POST "$API/auth/register" \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" > /dev/null
+          TOKEN=$(curl -sf -X POST "$API/auth/login" \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" | jq -r .access_token)
+
+          echo "warming up worker" > /tmp/warmup.txt
+          DOC_ID=$(curl -sf -X POST "$API/documents" \
+            -H "Authorization: Bearer $TOKEN" \
+            -F "file=@/tmp/warmup.txt;type=text/plain" | jq -r .id)
+
+          for i in $(seq 1 60); do
+            STATUS=$(curl -sf -H "Authorization: Bearer $TOKEN" \
+              "$API/documents/$DOC_ID" | jq -r .status)
+            echo "warmup status: $STATUS (attempt $i/60)"
+            if [ "$STATUS" = "processed" ]; then exit 0; fi
+            if [ "$STATUS" = "failed" ]; then
+              docker compose logs worker --tail 200
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "::error::worker warmup timed out after 5 minutes"
+          docker compose logs worker --tail 200
+          exit 1
+
       - name: Run Playwright
         run: npx playwright test --reporter=line
+
+      - name: Dump backend + worker logs on failure
+        if: failure()
+        run: docker compose logs --tail 300 backend worker
 
       - name: Upload Playwright report on failure
         if: failure()
