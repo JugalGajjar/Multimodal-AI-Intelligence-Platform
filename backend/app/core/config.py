@@ -34,14 +34,24 @@ class Settings(BaseSettings):
     postgres_user: str = "mmap"
     postgres_password: str = "mmap_dev_password"
     postgres_db: str = "mmap"
+    # Cloud override: when set, takes precedence over host/port/user/pwd/db.
+    # Use postgresql+asyncpg:// scheme; append ?ssl=require for managed PG.
+    database_url: str = ""
 
     # Redis
     redis_host: str = "redis"
     redis_port: int = 6379
+    # Cloud-mode: set redis_password (and redis_secure=true for managed TLS).
+    redis_password: str = ""
+    redis_secure: bool = False
 
     # Qdrant
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
+    # Cloud override: full https URL like https://<cluster>.qdrant.tech +
+    # the cluster API key.
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
 
     # Neo4j
     neo4j_uri: str = "bolt://neo4j:7687"
@@ -96,6 +106,8 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn(self) -> str:
+        if self.database_url:
+            return self.database_url
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

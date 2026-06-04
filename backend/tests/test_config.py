@@ -87,3 +87,30 @@ def test_unknown_env_vars_ignored(fresh_settings):
     s = fresh_settings({"COMPLETELY_RANDOM_VAR": "x"})
 
     assert not hasattr(s, "completely_random_var")
+
+
+def test_database_url_override_wins(fresh_settings):
+    # When DATABASE_URL is set (cloud mode), it bypasses the per-field build.
+    s = fresh_settings(
+        {
+            "DATABASE_URL": "postgresql+asyncpg://u:p@cloud.example:5432/db?ssl=require",
+            "POSTGRES_HOST": "ignored",
+            "POSTGRES_PASSWORD": "ignored",
+        }
+    )
+
+    assert s.postgres_dsn == "postgresql+asyncpg://u:p@cloud.example:5432/db?ssl=require"
+
+
+def test_redis_password_and_tls_defaults(fresh_settings):
+    s = fresh_settings({})
+
+    assert s.redis_password == ""
+    assert s.redis_secure is False
+
+
+def test_qdrant_url_and_api_key_defaults(fresh_settings):
+    s = fresh_settings({})
+
+    assert s.qdrant_url == ""
+    assert s.qdrant_api_key == ""

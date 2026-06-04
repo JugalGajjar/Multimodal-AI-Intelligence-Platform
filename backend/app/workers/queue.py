@@ -9,7 +9,12 @@ QUEUE_NAME = "mmap-ocr"
 
 
 def redis_settings() -> RedisSettings:
-    return RedisSettings(host=settings.redis_host, port=settings.redis_port)
+    return RedisSettings(
+        host=settings.redis_host,
+        port=settings.redis_port,
+        password=settings.redis_password or None,
+        ssl=settings.redis_secure,
+    )
 
 
 async def get_arq_pool() -> ArqRedis:

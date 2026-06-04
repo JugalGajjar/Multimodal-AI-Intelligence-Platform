@@ -13,6 +13,12 @@ VECTOR_SIZE = 384  # BAAI/bge-small-en-v1.5
 
 @lru_cache(maxsize=1)
 def get_qdrant_client() -> QdrantClient:
+    # Cloud mode: full URL + API key. Falls back to host/port for dev compose.
+    if settings.qdrant_url:
+        return QdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key or None,
+        )
     return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
 
 
