@@ -136,3 +136,6 @@ uploads/
 tmp/
 *.log
 logs/
+
+# Eval output — regenerated on every run
+backend/evals/report.json

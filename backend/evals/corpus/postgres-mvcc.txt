@@ -1,0 +1,32 @@
+PostgreSQL — MVCC and vacuum
+
+PostgreSQL uses Multi-Version Concurrency Control (MVCC) to give each
+transaction a consistent snapshot of the database without blocking readers
+against writers. Every row version (tuple) carries two hidden system columns:
+xmin (the transaction id that inserted it) and xmax (the transaction that
+deleted or updated it). A tuple is visible to a transaction when xmin is
+committed and before the transaction's snapshot, and xmax is either zero or
+after the snapshot.
+
+Updates do not modify a row in place; they insert a new tuple and mark the old
+one with xmax. Deletes only set xmax. The old row versions ("dead tuples")
+remain on disk until vacuum reclaims them.
+
+VACUUM has two responsibilities:
+- Mark dead tuples as free space in the page so subsequent inserts can reuse
+  it. This is the everyday "lazy" vacuum.
+- Advance the per-table relfrozenxid to prevent transaction id (xid)
+  wraparound. Postgres uses a 32-bit xid space, and unfrozen tuples older than
+  about 2 billion transactions become invisible. Wraparound is catastrophic,
+  so autovacuum will aggressively launch anti-wraparound vacuums when needed.
+
+Autovacuum runs in the background. It is triggered per-table by thresholds:
+roughly autovacuum_vacuum_scale_factor * reltuples + autovacuum_vacuum_threshold
+dead tuples since the last vacuum. Heavily updated tables often need these
+thresholds lowered.
+
+Isolation levels in Postgres are implemented on top of MVCC. Read Committed
+takes a new snapshot per statement; Repeatable Read takes one snapshot at
+transaction start; Serializable adds SSI (Serializable Snapshot Isolation) on
+top to detect read-write dependency cycles and abort one of the participating
+transactions.

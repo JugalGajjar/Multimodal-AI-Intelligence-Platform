@@ -1,0 +1,33 @@
+React hooks — fundamentals
+
+Hooks are functions added in React 16.8 that let function components hold
+state and tap into the React lifecycle without writing classes.
+
+useState returns a stateful value and a setter. The setter triggers a
+re-render with the new value. Calls to setter are batched within a single
+React event, so multiple setter calls in the same handler produce one render.
+
+useEffect schedules a side effect to run after the component commits. The
+second argument is a dependency array: when any value changes between renders
+the effect re-runs. An empty array runs the effect once on mount; omitting
+the array runs it after every render. Returning a function from the effect
+registers a cleanup that runs before the next effect and on unmount — this
+is where you cancel timers, abort fetches, and remove event listeners.
+
+useMemo and useCallback memoize values and functions between renders so child
+components that rely on referential equality (via React.memo) can skip
+re-rendering. They are an optimisation, not a correctness mechanism.
+
+useRef returns a mutable container whose .current field persists across
+renders without causing one. It is used for DOM node references and for
+mutable values that should not drive UI.
+
+Rules of hooks: hooks must be called at the top level of a function
+component, in the same order on every render. Conditionals around a hook
+break React's ability to associate hooks with their state slots and will
+either lose state or throw. ESLint's react-hooks/rules-of-hooks rule
+enforces this.
+
+Custom hooks are functions whose names begin with "use" that call other
+hooks. They are how you share stateful logic between components without
+introducing wrapper components.

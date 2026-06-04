@@ -1,0 +1,34 @@
+OpenTelemetry — traces, spans, and metrics
+
+OpenTelemetry (OTel) is a CNCF project that defines a vendor-neutral
+specification, SDK, and wire protocol (OTLP) for emitting telemetry from
+distributed systems. It unifies three pillars: traces, metrics, and logs.
+
+A trace is a directed graph of spans representing one logical operation as it
+crosses process and service boundaries. Each span has a name, a start and end
+timestamp, a span id, a parent span id, and a set of attributes. The first
+span in a trace is the root; its absent parent id is what identifies it as
+such. Spans propagate across services via the W3C traceparent HTTP header,
+which carries the trace id and the parent span id of the calling span.
+
+Sampling decides whether a trace is exported. Head-based sampling makes the
+decision at the root span and propagates it via the trace flags byte;
+tail-based sampling buffers spans at a collector and decides after the trace
+completes, which lets you keep all error traces while sampling successful
+ones.
+
+Metrics in OpenTelemetry are aggregated time series with a stable shape:
+counters monotonically increase, up-down counters can move in either
+direction, gauges represent instantaneous values, and histograms record
+distributions. Each metric instrument carries a name, unit, and attributes.
+
+The OpenTelemetry Collector is a standalone process that receives, processes,
+and exports telemetry. A typical pipeline accepts OTLP over gRPC, applies a
+batch processor, and exports to a backend such as Jaeger or Prometheus.
+Running a collector decouples application code from backend choice and lets
+you change vendors without redeploying services.
+
+Auto-instrumentation libraries wrap common frameworks (FastAPI, HTTPX,
+asyncpg, requests) so they emit spans without explicit application code. They
+are the fastest path to coverage and are usually combined with a small
+number of hand-written spans around domain operations.

@@ -1,0 +1,31 @@
+Apache Kafka — overview
+
+Apache Kafka is a distributed event streaming platform originally developed at
+LinkedIn and open-sourced in 2011. It is designed for high-throughput, durable,
+publish-subscribe messaging.
+
+Core concepts:
+
+- Topic: a named append-only log of events. Producers write to topics, consumers
+  read from them.
+- Partition: each topic is split into one or more partitions. Partitions are
+  the unit of parallelism — each partition is consumed by at most one consumer
+  inside a given consumer group.
+- Broker: a single Kafka server. A Kafka cluster is a group of brokers that
+  share partition replicas.
+- Consumer group: a set of consumer processes that cooperatively read a topic.
+  The group ID identifies the cooperative set, and Kafka tracks per-group
+  offsets so each group makes independent progress.
+
+Ordering guarantees apply per partition, not per topic. To guarantee that
+related events are delivered in order, producers route them to the same
+partition using a partition key — typically a tenant id or user id.
+
+Durability is provided by per-partition replication. A topic configured with
+replication factor 3 keeps three copies of every event across different
+brokers. Writes are acknowledged after the leader and a configurable number of
+followers have persisted them (acks=all in the producer).
+
+Kafka does not delete messages when they are consumed; retention is governed
+by either a time bound (e.g. 7 days) or a size bound per partition. This makes
+Kafka usable as a short-term source of truth and enables consumer replay.

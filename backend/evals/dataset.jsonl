@@ -1,0 +1,12 @@
+{"id": "kafka-1", "question": "What is a Kafka partition and why does it matter?", "expected_filenames": ["kafka-overview.txt"], "expected_keywords": ["partition", "parallelism", "consumer"]}
+{"id": "kafka-2", "question": "How does Kafka guarantee message ordering?", "expected_filenames": ["kafka-overview.txt"], "expected_keywords": ["partition", "key", "order"]}
+{"id": "kafka-3", "question": "Does Kafka delete messages after they are consumed?", "expected_filenames": ["kafka-overview.txt"], "expected_keywords": ["retention", "time", "size"]}
+{"id": "pg-1", "question": "What does xmin and xmax mean in PostgreSQL?", "expected_filenames": ["postgres-mvcc.txt"], "expected_keywords": ["transaction", "tuple", "visible"]}
+{"id": "pg-2", "question": "Why does PostgreSQL need VACUUM?", "expected_filenames": ["postgres-mvcc.txt"], "expected_keywords": ["dead", "wraparound", "xid"]}
+{"id": "pg-3", "question": "How is Serializable isolation implemented in Postgres?", "expected_filenames": ["postgres-mvcc.txt"], "expected_keywords": ["SSI", "snapshot", "cycle"]}
+{"id": "react-1", "question": "What is the dependency array in useEffect?", "expected_filenames": ["react-hooks.txt"], "expected_keywords": ["dependency", "re-run", "mount"]}
+{"id": "react-2", "question": "What are the rules of hooks?", "expected_filenames": ["react-hooks.txt"], "expected_keywords": ["top level", "order", "conditional"]}
+{"id": "otel-1", "question": "What is a span in OpenTelemetry and how is it linked to its parent?", "expected_filenames": ["observability.txt"], "expected_keywords": ["span", "parent", "trace"]}
+{"id": "otel-2", "question": "What is the difference between head sampling and tail sampling?", "expected_filenames": ["observability.txt"], "expected_keywords": ["head", "tail", "collector"]}
+{"id": "otel-3", "question": "What does the OpenTelemetry Collector do?", "expected_filenames": ["observability.txt"], "expected_keywords": ["receive", "export", "batch"]}
+{"id": "cross-1", "question": "Which of these systems use a log-structured durability model: Kafka, Postgres, React?", "expected_filenames": ["kafka-overview.txt", "postgres-mvcc.txt"], "expected_keywords": ["Kafka", "log"]}
