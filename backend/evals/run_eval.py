@@ -1,18 +1,5 @@
-"""End-to-end eval driver.
-
-Uploads the static corpus, asks every question in dataset.jsonl over the
-public chat API, and scores the responses on three axes:
-
-  - retrieval recall@k — did the retriever surface the expected documents?
-  - keyword coverage   — does the answer mention the expected terms?
-  - groundedness       — verification agent's score on the generated answer.
-
-Run against a live stack (dev compose is fine):
-
-    python -m evals.run_eval --api-url http://localhost:8000
-
-Outputs a JSON report and prints a one-line summary suitable for CI/log grep.
-"""
+"""End-to-end eval driver — uploads corpus, runs dataset.jsonl, scores
+recall@k / keyword coverage / groundedness. See evals/README.md."""
 
 from __future__ import annotations
 
@@ -66,10 +53,9 @@ def load_dataset() -> list[dict[str, Any]]:
 
 
 async def register_and_login(client: httpx.AsyncClient) -> str:
-    # Use a real-looking TLD — pydantic's EmailStr rejects reserved names
-    # like .local / .test / .example.
+    # pydantic's EmailStr rejects .local/.test/.example as reserved.
     email = f"eval-{secrets.token_hex(4)}@evalbot.io"
-    password = "EvalUserP@ssw0rd!"  # noqa: S105 — ephemeral eval user
+    password = "EvalUserP@ssw0rd!"  # noqa: S105
     reg = await client.post("/api/v1/auth/register", json={"email": email, "password": password})
     if reg.status_code not in (201, 409):
         reg.raise_for_status()

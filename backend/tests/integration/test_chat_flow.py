@@ -210,8 +210,7 @@ async def test_chat_with_unit_patched_llm(http, auth, monkeypatch):
     from app.rag import router as rag_router
     from app.rag.schemas import ChatRequest
 
-    # The chat endpoint short-circuits to 503 when no Groq key is configured.
-    # Stub a value so the patched chat_completion below actually gets reached.
+    # Bypass the 503 gate so the patched chat_completion below runs.
     monkeypatch.setattr(settings, "groq_api_key", "test-key")
 
     doc = upload_text(http, auth)

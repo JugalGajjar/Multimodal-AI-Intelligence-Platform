@@ -6,11 +6,8 @@ from collections.abc import Iterable
 
 
 def recall_at_k(expected: Iterable[str], retrieved: Iterable[str]) -> float:
-    """Fraction of expected document ids that appear in the retrieved set.
-
-    `retrieved` is assumed to already be truncated to top-K by the caller.
-    Empty `expected` returns 1.0 (vacuously satisfied) so questions with no
-    grounding requirement don't drag the average down.
+    """Fraction of `expected` ids present in `retrieved` (already top-K).
+    Empty `expected` returns 1.0 so ungrounded questions don't tank the avg.
     """
     expected_set = set(expected)
     if not expected_set:
@@ -20,10 +17,8 @@ def recall_at_k(expected: Iterable[str], retrieved: Iterable[str]) -> float:
 
 
 def keyword_coverage(expected_keywords: Iterable[str], answer: str) -> float:
-    """Fraction of expected keywords that appear as case-insensitive substrings.
-
-    Substring match (not word-boundary) is deliberate: it tolerates plurals,
-    capitalisation, and inflection without an NLP dep.
+    """Fraction of keywords present in `answer` (case-insensitive substring).
+    Substring match tolerates plurals/inflection without an NLP dep.
     """
     keywords = [kw for kw in expected_keywords if kw]
     if not keywords:

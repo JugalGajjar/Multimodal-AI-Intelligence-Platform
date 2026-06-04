@@ -69,4 +69,6 @@ RUN chown -R app:app /app
 
 USER app
 
-CMD ["arq", "app.workers.config.WorkerSettings"]
+EXPOSE 7860
+
+CMD ["python", "-m", "app.workers.main"]

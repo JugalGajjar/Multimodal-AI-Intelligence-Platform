@@ -25,10 +25,8 @@ jobs:
 
       - name: Compose up (dev stack)
         run: |
-          # Copy the example env so compose has variable defaults.
           cp .env.example .env
-          # traefik is required by tests/integration/test_infra.py — it asserts
-          # the dashboard (:8080) and host-header routing (:80) both work.
+          # traefik is needed by test_infra.py (dashboard + host-header routes).
           docker compose up -d postgres redis qdrant neo4j minio minio-init backend worker traefik
 
       - name: Wait for stack to be healthy
@@ -105,10 +103,8 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Warm up worker (download embedding model)
-        # The dev worker image does not bake in BAAI/bge-small-en-v1.5; the
-        # first upload triggers a ~100 MB HuggingFace download that can blow
-        # past Playwright's per-test timeout. Process a throwaway doc here so
-        # the model is cached in the worker before the e2e suite runs.
+        # First upload triggers a ~100 MB HF download. Warm it up before e2e
+        # so per-test timeouts don't eat the cold start.
         run: |
           set -e
           EMAIL="warmup-$(date +%s)@evalbot.io"

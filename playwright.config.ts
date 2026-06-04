@@ -8,8 +8,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  // Default test timeout is 30s; bump to 120s in CI so tests that wait on
-  // worker processing (~60s expect timeouts) have enough wall-clock budget.
+  // CI tests wait on worker processing — give them headroom.
   timeout: process.env.CI ? 120_000 : 30_000,
   reporter: [
     ["list"],

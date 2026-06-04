@@ -34,22 +34,18 @@ class Settings(BaseSettings):
     postgres_user: str = "mmap"
     postgres_password: str = "mmap_dev_password"
     postgres_db: str = "mmap"
-    # Cloud override: when set, takes precedence over host/port/user/pwd/db.
-    # Use postgresql+asyncpg:// scheme; append ?ssl=require for managed PG.
+    # Managed Postgres: postgresql+asyncpg://...?ssl=require
     database_url: str = ""
 
     # Redis
     redis_host: str = "redis"
     redis_port: int = 6379
-    # Cloud-mode: set redis_password (and redis_secure=true for managed TLS).
     redis_password: str = ""
     redis_secure: bool = False
 
-    # Qdrant
+    # Qdrant — set qdrant_url + qdrant_api_key for cloud
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
-    # Cloud override: full https URL like https://<cluster>.qdrant.tech +
-    # the cluster API key.
     qdrant_url: str = ""
     qdrant_api_key: str = ""
 
