@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { Toaster } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DocumentsList } from "./documents-list";
@@ -13,7 +14,10 @@ function renderWithQuery(ui: ReactNode) {
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
+    <QueryClientProvider client={queryClient}>
+      {ui}
+      <Toaster />
+    </QueryClientProvider>,
   );
 }
 
@@ -303,9 +307,7 @@ describe("<DocumentsList />", () => {
       expect(call).toBeDefined();
     });
 
-    expect(await screen.findByTestId("reindex-status")).toHaveTextContent(
-      /re-indexing/i,
-    );
+    expect(await screen.findByText(/re-indexing graph/i)).toBeInTheDocument();
   });
 
   it("clicking 'Re-index graph' surfaces an error on non-2xx", async () => {
@@ -332,9 +334,7 @@ describe("<DocumentsList />", () => {
 
     await userEvent.click(await screen.findByTestId("reindex-graph-button"));
 
-    expect(await screen.findByTestId("reindex-status")).toHaveTextContent(
-      /reindex failed/i,
-    );
+    expect(await screen.findByText(/reindex failed|queue down|503/i)).toBeInTheDocument();
   });
 
   it("renders an error message when the list query fails", async () => {
@@ -437,9 +437,7 @@ describe("<DocumentsList />", () => {
         );
         expect(call).toBeDefined();
       });
-      expect(await screen.findByTestId("summarize-status")).toHaveTextContent(
-        /summarizing/i,
-      );
+      expect(await screen.findByText(/summarizing/i)).toBeInTheDocument();
     });
 
     it("button label says 'Re-summarize' when the doc already has a summary", async () => {

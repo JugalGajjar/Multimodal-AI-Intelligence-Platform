@@ -151,6 +151,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Keyboard users get an unmistakable focus ring; mouse clicks don't. */
+  *:focus-visible {
+    @apply outline-2 outline-offset-2;
+    outline-color: color-mix(in oklch, var(--brand) 75%, transparent);
+  }
   html {
     @apply font-sans;
   }

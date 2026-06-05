@@ -31,6 +31,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api";
 import {
   streamChatQuery,
@@ -183,6 +184,35 @@ export function ChatPanel() {
           >
             {errorMessage(stream.error)}
           </p>
+        )}
+
+        {/* Initial empty state — no query yet */}
+        {stream.status === "idle" && !response && (
+          <div
+            className="rounded-xl border border-dashed border-border/70 bg-background/30 px-5 py-6 text-center"
+            data-testid="chat-empty"
+          >
+            <MessageSquareText
+              className="mx-auto size-6 text-muted-foreground/70"
+              aria-hidden="true"
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Ask anything about your documents — answers stream with citations
+              and a live entity graph when relevant.
+            </p>
+          </div>
+        )}
+
+        {/* Skeleton while streaming has started but no meta + no tokens arrived */}
+        {pending && !response && (
+          <div
+            className="space-y-3 rounded-xl border border-border/60 bg-background/50 px-5 py-4"
+            data-testid="chat-answer-skeleton"
+          >
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-11/12" />
+            <Skeleton className="h-3 w-3/4" />
+          </div>
         )}
 
         {response && <Answer response={response} streaming={pending} />}

@@ -13,8 +13,10 @@ import {
   ScrollText,
   Sparkles,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   deleteDocument,
   formatBytes,
@@ -68,16 +71,6 @@ export function DocumentsList() {
   const queryClient = useQueryClient();
   const [openId, setOpenId] = useState<string | null>(null);
   const [openSummaryId, setOpenSummaryId] = useState<string | null>(null);
-  const [reindexStatus, setReindexStatus] = useState<{
-    id: string;
-    kind: "ok" | "err";
-    message: string;
-  } | null>(null);
-  const [summarizeStatus, setSummarizeStatus] = useState<{
-    id: string;
-    kind: "ok" | "err";
-    message: string;
-  } | null>(null);
 
   const { data, isLoading, isError } = useQuery<DocumentListResponse>({
     queryKey: ["documents"],
@@ -89,43 +82,37 @@ export function DocumentsList() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteDocument(token!, id),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["documents"] }),
+    onSuccess: () => {
+      toast.success("Document deleted.");
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    onError: (err: unknown) =>
+      toast.error(err instanceof Error ? err.message : "Delete failed."),
   });
 
   const reindexMutation = useMutation({
     mutationFn: (id: string) => reindexDocumentGraph(token!, id),
-    onSuccess: (_, id) => {
-      setReindexStatus({
-        id,
-        kind: "ok",
-        message: "Re-indexing graph… new entities will appear within ~10s.",
-      });
-    },
-    onError: (err: unknown, id) => {
-      const msg = err instanceof Error ? err.message : "Re-index failed.";
-      setReindexStatus({ id, kind: "err", message: msg });
-    },
+    onSuccess: () =>
+      toast.success("Re-indexing graph", {
+        description: "New entities will appear within ~10s.",
+      }),
+    onError: (err: unknown) =>
+      toast.error(err instanceof Error ? err.message : "Re-index failed."),
   });
 
   const summarizeMutation = useMutation({
     mutationFn: (id: string) => resummarizeDocument(token!, id),
-    onSuccess: (_, id) => {
-      setSummarizeStatus({
-        id,
-        kind: "ok",
-        message: "Summarizing… the summary will appear within ~10s.",
+    onSuccess: () => {
+      toast.success("Summarizing", {
+        description: "The summary will appear within ~10s.",
       });
-      // Refresh once the worker should have written the summary.
       setTimeout(
         () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
         12_000,
       );
     },
-    onError: (err: unknown, id) => {
-      const msg = err instanceof Error ? err.message : "Summarize failed.";
-      setSummarizeStatus({ id, kind: "err", message: msg });
-    },
+    onError: (err: unknown) =>
+      toast.error(err instanceof Error ? err.message : "Summarize failed."),
   });
 
   return (
@@ -143,17 +130,43 @@ export function DocumentsList() {
       </CardHeader>
       <CardContent className="px-6 pt-2">
         {isLoading && (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <ul className="space-y-3" data-testid="documents-skeleton">
+            {[0, 1, 2].map((i) => (
+              <li
+                key={i}
+                className="rounded-xl border border-border/60 bg-background/40 p-4"
+              >
+                <div className="flex items-start gap-4">
+                  <Skeleton className="size-9 shrink-0 rounded-lg" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-3 w-1/3" />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
         {isError && (
           <p className="text-sm text-destructive">Failed to load documents.</p>
         )}
         {data && data.items.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-            <Files className="size-8 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm text-muted-foreground">
-              No documents yet. Upload one to get started.
-            </p>
+          <div
+            className="flex flex-col items-center justify-center gap-3 py-12 text-center"
+            data-testid="documents-empty"
+          >
+            <div
+              aria-hidden="true"
+              className="grid size-14 place-items-center rounded-2xl bg-gradient-brand text-brand-foreground glow-brand"
+            >
+              <Upload className="size-6" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium">No documents yet</p>
+              <p className="text-xs text-muted-foreground">
+                Drop a file in the panel above — PDFs, images, audio, or text.
+              </p>
+            </div>
           </div>
         )}
         {data && data.items.length > 0 && (
@@ -227,10 +240,7 @@ export function DocumentsList() {
                           (summarizeMutation.isPending &&
                             summarizeMutation.variables === doc.id)
                         }
-                        onClick={() => {
-                          setSummarizeStatus(null);
-                          summarizeMutation.mutate(doc.id);
-                        }}
+                        onClick={() => summarizeMutation.mutate(doc.id)}
                         title={
                           doc.summary
                             ? "Re-run summarization"
@@ -266,10 +276,7 @@ export function DocumentsList() {
                           (reindexMutation.isPending &&
                             reindexMutation.variables === doc.id)
                         }
-                        onClick={() => {
-                          setReindexStatus(null);
-                          reindexMutation.mutate(doc.id);
-                        }}
+                        onClick={() => reindexMutation.mutate(doc.id)}
                         title="Re-run entity extraction over this document's chunks"
                         data-testid="reindex-graph-button"
                         className="gap-1"
@@ -314,32 +321,6 @@ export function DocumentsList() {
                         )
                       }
                     />
-                  )}
-                  {reindexStatus?.id === doc.id && (
-                    <p
-                      className={
-                        "mt-2 text-xs " +
-                        (reindexStatus.kind === "ok"
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-destructive")
-                      }
-                      data-testid="reindex-status"
-                    >
-                      {reindexStatus.message}
-                    </p>
-                  )}
-                  {summarizeStatus?.id === doc.id && (
-                    <p
-                      className={
-                        "mt-2 text-xs " +
-                        (summarizeStatus.kind === "ok"
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-destructive")
-                      }
-                      data-testid="summarize-status"
-                    >
-                      {summarizeStatus.message}
-                    </p>
                   )}
                   {isOpen && <DocumentText id={doc.id} />}
                 </li>
