@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     # OCR text; llama-3.3-70b handles structured output cleanly.
     groq_extraction_model: str = "llama-3.3-70b-versatile"
 
+    # Transactional email (Resend). When unset, /register skips the email
+    # but still creates the user — useful for local dev without a key.
+    resend_api_key: str = ""
+    resend_from_email: str = "onboarding@resend.dev"
+
     # Knowledge-graph expansion. `graph_max_hops` is clamped to 1..3.
     # `graph_max_facts_per_seed` caps facts per seed regardless of depth —
     # closer hops are preferred when capping.

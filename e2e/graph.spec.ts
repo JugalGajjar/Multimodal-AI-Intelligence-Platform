@@ -1,8 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-function uniqueEmail(): string {
-  return `kg-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
-}
+import { registerAndSignIn } from "./auth-helpers";
 
 const SAMPLE = {
   nodes: [
@@ -40,14 +38,8 @@ const SAMPLE = {
   link_count: 2,
 };
 
-async function registerAndSignIn(page: import("@playwright/test").Page) {
-  const email = uniqueEmail();
-  await page.goto("/register");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password", { exact: true }).fill("abcdefgh");
-  await page.getByLabel(/confirm password/i).fill("abcdefgh");
-  await page.getByRole("button", { name: /create account/i }).click();
-  await page.waitForURL("**/dashboard");
+async function setup(page: import("@playwright/test").Page) {
+  await registerAndSignIn(page, "kg");
 }
 
 test.describe("/dashboard/graph full graph page", () => {
@@ -62,7 +54,7 @@ test.describe("/dashboard/graph full graph page", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.goto("/dashboard/graph");
 
     await expect(page.getByTestId("full-graph-view")).toBeVisible();
@@ -88,7 +80,7 @@ test.describe("/dashboard/graph full graph page", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.goto("/dashboard/graph");
 
     await expect(page.getByTestId("kg-empty-full")).toBeVisible();
@@ -103,7 +95,7 @@ test.describe("/dashboard/graph full graph page", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.goto("/dashboard/graph");
 
     await page.getByTestId("nav-dashboard").click();
@@ -132,7 +124,7 @@ test.describe("/dashboard/graph full graph page", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.goto("/dashboard/graph");
 
     await page.getByTestId("kg-search").fill("cosine");
@@ -177,7 +169,7 @@ test.describe("/dashboard/graph full graph page", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.getByLabel(/question/i).fill("What does the platform use?");
     await page.getByRole("button", { name: /^send$/i }).click();
     await expect(page.getByTestId("inline-graph")).toBeVisible();

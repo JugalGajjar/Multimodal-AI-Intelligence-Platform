@@ -15,6 +15,8 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+from tests.integration.conftest import STRONG_PASSWORD, mark_user_verified
+
 pytestmark = pytest.mark.integration
 
 BASE_URL = "http://127.0.0.1:8000/api/v1"
@@ -42,8 +44,9 @@ def http():
 @pytest.fixture
 def auth(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": "abcdefgh"})
-    tok = http.post("/auth/login", json={"email": email, "password": "abcdefgh"}).json()[
+    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    mark_user_verified(email)
+    tok = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD}).json()[
         "access_token"
     ]
     return {"Authorization": f"Bearer {tok}"}
@@ -136,11 +139,12 @@ def test_chat_isolates_users_in_retrieval(http, auth):
     other_email = unique_email()
     httpx.post(
         f"{BASE_URL}/auth/register",
-        json={"email": other_email, "password": "abcdefgh"},
+        json={"email": other_email, "password": STRONG_PASSWORD},
     )
+    mark_user_verified(other_email)
     other_tok = httpx.post(
         f"{BASE_URL}/auth/login",
-        json={"email": other_email, "password": "abcdefgh"},
+        json={"email": other_email, "password": STRONG_PASSWORD},
     ).json()["access_token"]
     b_auth = {"Authorization": f"Bearer {other_tok}"}
 

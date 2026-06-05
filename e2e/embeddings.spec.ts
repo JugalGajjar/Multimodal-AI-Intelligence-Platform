@@ -1,22 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-function uniqueEmail(): string {
-  return `emb-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
-}
+import { registerAndSignIn } from "./auth-helpers";
 
-async function registerAndSignIn(page: import("@playwright/test").Page) {
-  const email = uniqueEmail();
-  await page.goto("/register");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password", { exact: true }).fill("abcdefgh");
-  await page.getByLabel(/confirm password/i).fill("abcdefgh");
-  await page.getByRole("button", { name: /create account/i }).click();
-  await page.waitForURL("**/dashboard");
+async function setup(page: import("@playwright/test").Page) {
+  await registerAndSignIn(page, "emb");
 }
 
 test.describe("embeddings + chunk count", () => {
   test("uploaded text shows N chunks after processing", async ({ page }) => {
-    await registerAndSignIn(page);
+    await setup(page);
 
     // Long enough to produce multiple chunks (default chunk_size=500)
     const body =

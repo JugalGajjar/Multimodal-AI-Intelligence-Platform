@@ -4,6 +4,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 export type AuthUser = {
   id: string;
   email: string;
+  isVerified?: boolean;
 };
 
 type AuthState = {

@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -16,25 +15,28 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
-import { fetchCurrentUser, loginUser } from "@/lib/auth-api";
+import { fetchCurrentUser, resendVerification, verifyEmail } from "@/lib/auth-api";
 import { useAuthStore } from "@/store/auth";
 
-export function LoginForm() {
+export function VerifyEmailForm() {
   const router = useRouter();
+  const search = useSearchParams();
   const setSession = useAuthStore((s) => s.setSession);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+
+  const [email, setEmail] = useState(search.get("email") ?? "");
+  const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [unverified, setUnverified] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setUnverified(false);
+    setInfo(null);
     setSubmitting(true);
     try {
-      const { access_token } = await loginUser(email, password);
+      const { access_token } = await verifyEmail(email, code.trim().toUpperCase());
       const user = await fetchCurrentUser(access_token);
       setSession(
         { id: user.id, email: user.email, isVerified: user.is_verified },
@@ -42,26 +44,40 @@ export function LoginForm() {
       );
       router.push("/dashboard");
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setError("Invalid email or password.");
-      } else if (err instanceof ApiError && err.status === 403) {
-        setUnverified(true);
+      if (err instanceof ApiError && err.status === 400) {
+        setError("Invalid or expired code.");
       } else {
-        setError("Login failed. Try again.");
+        setError("Verification failed. Try again.");
       }
     } finally {
       setSubmitting(false);
     }
   }
 
+  async function onResend() {
+    if (!email) {
+      setError("Enter your email first.");
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    setResending(true);
+    try {
+      const resp = await resendVerification(email);
+      setInfo(resp.message);
+    } catch {
+      setError("Couldn't resend the code. Try again.");
+    } finally {
+      setResending(false);
+    }
+  }
+
   return (
     <Card className="glass w-full max-w-md py-7">
       <CardHeader className="space-y-2 px-7 pb-2">
-        <CardTitle className="text-2xl">Welcome back</CardTitle>
+        <CardTitle className="text-2xl">Verify your email</CardTitle>
         <CardDescription className="mt-1">
-          Sign in to your{" "}
-          <span className="text-gradient-brand font-medium">MMAP</span>{" "}
-          workspace.
+          Enter the 8-character code we sent to your inbox.
         </CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
@@ -80,24 +96,21 @@ export function LoginForm() {
             />
           </div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">Password</Label>
-              <Link
-                href="/forgot-password"
-                className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-              >
-                Forgot password?
-              </Link>
-            </div>
+            <Label htmlFor="code">Verification code</Label>
             <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
+              id="code"
+              type="text"
+              inputMode="text"
+              autoComplete="one-time-code"
+              maxLength={8}
+              minLength={8}
               required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="h-11 px-4"
+              value={code}
+              onChange={(e) =>
+                setCode(e.target.value.replace(/\s/g, "").toUpperCase())
+              }
+              placeholder="ABCD1234"
+              className="h-11 px-4 font-mono tracking-widest uppercase"
             />
           </div>
           {error && (
@@ -105,34 +118,27 @@ export function LoginForm() {
               {error}
             </p>
           )}
-          {unverified && (
-            <div
-              role="alert"
-              className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
-            >
-              <p>Your email isn&rsquo;t verified yet.</p>
-              <Link
-                href={`/verify-email?email=${encodeURIComponent(email)}`}
-                className="mt-1 inline-block font-medium underline underline-offset-4"
-              >
-                Enter your verification code →
-              </Link>
-            </div>
+          {info && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {info}
+            </p>
           )}
         </CardContent>
         <CardFooter className="mt-5 flex flex-col gap-4 px-7 pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <Link
-            href="/register"
-            className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          <button
+            type="button"
+            onClick={onResend}
+            disabled={resending}
+            className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground disabled:opacity-50"
           >
-            Create an account
-          </Link>
+            {resending ? "Sending…" : "Resend code"}
+          </button>
           <Button
             type="submit"
             disabled={submitting}
             className="h-11 w-full bg-gradient-brand text-brand-foreground glow-brand px-6 sm:w-auto"
           >
-            {submitting ? "Signing in…" : "Sign in"}
+            {submitting ? "Verifying…" : "Verify"}
           </Button>
         </CardFooter>
       </form>

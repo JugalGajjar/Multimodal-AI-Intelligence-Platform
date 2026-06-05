@@ -1,17 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-function uniqueEmail(): string {
-  return `chat-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
-}
+import { registerAndSignIn } from "./auth-helpers";
 
-async function registerAndSignIn(page: import("@playwright/test").Page) {
-  const email = uniqueEmail();
-  await page.goto("/register");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password", { exact: true }).fill("abcdefgh");
-  await page.getByLabel(/confirm password/i).fill("abcdefgh");
-  await page.getByRole("button", { name: /create account/i }).click();
-  await page.waitForURL("**/dashboard");
+async function setup(page: import("@playwright/test").Page) {
+  await registerAndSignIn(page, "chat");
 }
 
 type ChatBody = {
@@ -72,7 +64,7 @@ test.describe("frontend chat UI", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
 
     await page.getByLabel(/question/i).fill("What is the embedding dimension?");
     await page.getByRole("button", { name: /^send$/i }).click();
@@ -104,7 +96,7 @@ test.describe("frontend chat UI", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.getByLabel(/question/i).fill("anything");
     await page.getByRole("button", { name: /^send$/i }).click();
 
@@ -123,7 +115,7 @@ test.describe("frontend chat UI", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.getByLabel(/question/i).fill("anything");
     await page.getByRole("button", { name: /^send$/i }).click();
 
@@ -179,7 +171,7 @@ test.describe("inline knowledge graph in chat panel", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.getByLabel(/question/i).fill("What does the platform use?");
     await page.getByRole("button", { name: /^send$/i }).click();
 
@@ -212,7 +204,7 @@ test.describe("inline knowledge graph in chat panel", () => {
       });
     });
 
-    await registerAndSignIn(page);
+    await setup(page);
     await page.getByLabel(/question/i).fill("hi");
     await page.getByRole("button", { name: /^send$/i }).click();
 

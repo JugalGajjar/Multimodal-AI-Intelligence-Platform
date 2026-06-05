@@ -6,6 +6,7 @@ import pytest
 from app.auth.security import (
     create_access_token,
     decode_access_token,
+    generate_code,
     hash_password,
     verify_password,
 )
@@ -85,3 +86,21 @@ class TestJWT:
         payload = decode_access_token(token)
         delta = payload["exp"] - payload["iat"]
         assert 55 <= delta <= 65
+
+
+class TestGenerateCode:
+    def test_default_length_8(self):
+        assert len(generate_code()) == 8
+
+    def test_custom_length(self):
+        assert len(generate_code(12)) == 12
+
+    def test_alphabet_excludes_ambiguous(self):
+        # 0/O and 1/I/l are hard to tell apart in most fonts.
+        for _ in range(50):
+            code = generate_code(8)
+            assert not any(ch in code for ch in "0O1Il")
+
+    def test_codes_differ(self):
+        seen = {generate_code() for _ in range(20)}
+        assert len(seen) == 20

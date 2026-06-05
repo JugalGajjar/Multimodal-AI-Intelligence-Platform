@@ -6,6 +6,8 @@ import uuid
 import httpx
 import pytest
 
+from tests.integration.conftest import STRONG_PASSWORD, mark_user_verified
+
 pytestmark = pytest.mark.integration
 
 BASE_URL = "http://127.0.0.1:8000/api/v1"
@@ -35,8 +37,9 @@ def http():
 def auth(http):
     """Register a fresh user and return {'token': ..., 'email': ...}."""
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": "abcdefgh"})
-    login = http.post("/auth/login", json={"email": email, "password": "abcdefgh"}).json()
+    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    mark_user_verified(email)
+    login = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD}).json()
     return {"token": login["access_token"], "email": email}
 
 
@@ -104,9 +107,10 @@ def test_list_returns_only_owned_documents(http, auth):
 
     # Other user — registers and uploads one
     other_email = unique_email()
-    http.post("/auth/register", json={"email": other_email, "password": "abcdefgh"})
+    http.post("/auth/register", json={"email": other_email, "password": STRONG_PASSWORD})
+    mark_user_verified(other_email)
     other_login = http.post(
-        "/auth/login", json={"email": other_email, "password": "abcdefgh"}
+        "/auth/login", json={"email": other_email, "password": STRONG_PASSWORD}
     ).json()
     http.post(
         "/documents",
@@ -147,9 +151,10 @@ def test_get_other_users_doc_returns_404(http, auth):
 
     # Other user
     other_email = unique_email()
-    http.post("/auth/register", json={"email": other_email, "password": "abcdefgh"})
+    http.post("/auth/register", json={"email": other_email, "password": STRONG_PASSWORD})
+    mark_user_verified(other_email)
     other_login = http.post(
-        "/auth/login", json={"email": other_email, "password": "abcdefgh"}
+        "/auth/login", json={"email": other_email, "password": STRONG_PASSWORD}
     ).json()
 
     r = http.get(
@@ -183,9 +188,10 @@ def test_delete_other_users_doc_returns_404(http, auth):
     ).json()
 
     other_email = unique_email()
-    http.post("/auth/register", json={"email": other_email, "password": "abcdefgh"})
+    http.post("/auth/register", json={"email": other_email, "password": STRONG_PASSWORD})
+    mark_user_verified(other_email)
     other_login = http.post(
-        "/auth/login", json={"email": other_email, "password": "abcdefgh"}
+        "/auth/login", json={"email": other_email, "password": STRONG_PASSWORD}
     ).json()
 
     r = http.delete(

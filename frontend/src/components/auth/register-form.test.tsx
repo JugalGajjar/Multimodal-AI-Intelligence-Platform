@@ -9,7 +9,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { RegisterForm } from "./register-form";
-import { useAuthStore } from "@/store/auth";
+
+const STRONG = "StrongP@ss1";
 
 describe("<RegisterForm />", () => {
   const fetchMock = vi.fn();
@@ -18,21 +19,37 @@ describe("<RegisterForm />", () => {
     fetchMock.mockReset();
     pushMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
-    useAuthStore.getState().clearSession();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("validates that passwords match before calling the API", async () => {
+  it("rejects a weak password before calling the API", async () => {
     render(<RegisterForm />);
 
     await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
     await userEvent.type(screen.getByLabelText("Password"), "abcdefgh");
     await userEvent.type(
       screen.getByLabelText(/confirm password/i),
-      "different",
+      "abcdefgh",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /create account/i }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/password/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("validates that passwords match before calling the API", async () => {
+    render(<RegisterForm />);
+
+    await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
+    await userEvent.type(screen.getByLabelText("Password"), STRONG);
+    await userEvent.type(
+      screen.getByLabelText(/confirm password/i),
+      `${STRONG}x`,
     );
     await userEvent.click(
       screen.getByRole("button", { name: /create account/i }),
@@ -44,46 +61,33 @@ describe("<RegisterForm />", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("on success, registers, logs in, fetches /me, sets session, routes to /dashboard", async () => {
-    const user = {
-      id: "u-1",
-      email: "a@b.com",
-      created_at: "2025-01-01T00:00:00Z",
-    };
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(user), {
+  it("on success, registers and routes to /verify-email with email in query", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          email: "a@b.com",
+          verification_sent: true,
+          message: "Check your email for a verification code.",
+        }),
+        {
           status: 201,
           headers: { "Content-Type": "application/json" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ access_token: "tok-abc", token_type: "bearer" }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(user), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
+        },
+      ),
+    );
 
     render(<RegisterForm />);
     await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
-    await userEvent.type(screen.getByLabelText("Password"), "abcdefgh");
-    await userEvent.type(
-      screen.getByLabelText(/confirm password/i),
-      "abcdefgh",
-    );
+    await userEvent.type(screen.getByLabelText("Password"), STRONG);
+    await userEvent.type(screen.getByLabelText(/confirm password/i), STRONG);
     await userEvent.click(
       screen.getByRole("button", { name: /create account/i }),
     );
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(useAuthStore.getState().token).toBe("tok-abc");
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/verify-email?email=a%40b.com"),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows duplicate email message on 409", async () => {
@@ -96,17 +100,38 @@ describe("<RegisterForm />", () => {
 
     render(<RegisterForm />);
     await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
-    await userEvent.type(screen.getByLabelText("Password"), "abcdefgh");
-    await userEvent.type(
-      screen.getByLabelText(/confirm password/i),
-      "abcdefgh",
-    );
+    await userEvent.type(screen.getByLabelText("Password"), STRONG);
+    await userEvent.type(screen.getByLabelText(/confirm password/i), STRONG);
     await userEvent.click(
       screen.getByRole("button", { name: /create account/i }),
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /already registered/i,
+    );
+  });
+
+  it("shows disposable-domain message on 400", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ detail: "Disposable email addresses are not allowed." }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    render(<RegisterForm />);
+    await userEvent.type(screen.getByLabelText("Email"), "a@mailinator.com");
+    await userEvent.type(screen.getByLabelText("Password"), STRONG);
+    await userEvent.type(screen.getByLabelText(/confirm password/i), STRONG);
+    await userEvent.click(
+      screen.getByRole("button", { name: /create account/i }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /disposable/i,
     );
   });
 });

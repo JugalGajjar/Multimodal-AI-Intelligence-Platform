@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { PasswordStrength } from "@/components/auth/password-strength";
@@ -16,12 +16,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
-import { registerUser } from "@/lib/auth-api";
+import { fetchCurrentUser, resetPassword } from "@/lib/auth-api";
 import { firstPasswordError } from "@/lib/password-validator";
+import { useAuthStore } from "@/store/auth";
 
-export function RegisterForm() {
+export function ResetPasswordForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const search = useSearchParams();
+  const setSession = useAuthStore((s) => s.setSession);
+
+  const [email, setEmail] = useState(search.get("email") ?? "");
+  const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -43,17 +48,22 @@ export function RegisterForm() {
 
     setSubmitting(true);
     try {
-      await registerUser(email, password);
-      router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+      const { access_token } = await resetPassword(
+        email,
+        code.trim().toUpperCase(),
+        password,
+      );
+      const user = await fetchCurrentUser(access_token);
+      setSession(
+        { id: user.id, email: user.email, isVerified: user.is_verified },
+        access_token,
+      );
+      router.push("/dashboard");
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        setError("That email is already registered.");
-      } else if (err instanceof ApiError && err.status === 400) {
-        setError("Please use a non-disposable email address.");
-      } else if (err instanceof ApiError && err.status === 422) {
-        setError("Please check your email and password.");
+      if (err instanceof ApiError && err.status === 400) {
+        setError("Invalid or expired code.");
       } else {
-        setError("Registration failed. Try again.");
+        setError("Couldn't reset your password. Try again.");
       }
     } finally {
       setSubmitting(false);
@@ -63,10 +73,9 @@ export function RegisterForm() {
   return (
     <Card className="glass w-full max-w-md py-7">
       <CardHeader className="space-y-2 px-7 pb-2">
-        <CardTitle className="text-2xl">Create your account</CardTitle>
+        <CardTitle className="text-2xl">Set a new password</CardTitle>
         <CardDescription className="mt-1">
-          Get started with{" "}
-          <span className="text-gradient-brand font-medium">MMAP</span>.
+          Enter the code you received and choose a new password.
         </CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
@@ -85,7 +94,25 @@ export function RegisterForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="code">Reset code</Label>
+            <Input
+              id="code"
+              type="text"
+              inputMode="text"
+              autoComplete="one-time-code"
+              maxLength={8}
+              minLength={8}
+              required
+              value={code}
+              onChange={(e) =>
+                setCode(e.target.value.replace(/\s/g, "").toUpperCase())
+              }
+              placeholder="ABCD1234"
+              className="h-11 px-4 font-mono tracking-widest uppercase"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">New password</Label>
             <Input
               id="password"
               type="password"
@@ -101,7 +128,7 @@ export function RegisterForm() {
             <PasswordStrength password={password} email={email} className="pt-1" />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="confirm">Confirm password</Label>
+            <Label htmlFor="confirm">Confirm new password</Label>
             <Input
               id="confirm"
               type="password"
@@ -111,7 +138,7 @@ export function RegisterForm() {
               required
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              placeholder="Repeat your password"
+              placeholder="Repeat your new password"
               className="h-11 px-4"
             />
           </div>
@@ -126,14 +153,14 @@ export function RegisterForm() {
             href="/login"
             className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
           >
-            Already have an account?
+            Back to sign in
           </a>
           <Button
             type="submit"
             disabled={submitting}
             className="h-11 w-full bg-gradient-brand text-brand-foreground glow-brand px-6 sm:w-auto"
           >
-            {submitting ? "Creating…" : "Create account"}
+            {submitting ? "Saving…" : "Reset password"}
           </Button>
         </CardFooter>
       </form>

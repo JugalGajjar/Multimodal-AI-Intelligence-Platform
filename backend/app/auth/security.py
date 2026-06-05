@@ -1,9 +1,13 @@
+import secrets
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
 
 from app.core.config import settings
+
+# Code alphabet excludes look-alikes (0/O, 1/I/l) to reduce paste errors.
+_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
 def hash_password(password: str) -> str:
@@ -15,6 +19,10 @@ def verify_password(password: str, hashed: str) -> bool:
         return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
     except ValueError:
         return False
+
+
+def generate_code(length: int = 8) -> str:
+    return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(length))
 
 
 def create_access_token(subject: str, expires_minutes: int | None = None) -> str:

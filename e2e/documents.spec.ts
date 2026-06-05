@@ -1,8 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-function uniqueEmail(): string {
-  return `docs-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
-}
+import { registerAndSignIn } from "./auth-helpers";
 
 const TINY_PDF = Buffer.from(
   [
@@ -22,20 +20,13 @@ const TINY_PDF = Buffer.from(
   ].join("\n"),
 );
 
-async function registerAndSignIn(page: import("@playwright/test").Page) {
-  const email = uniqueEmail();
-  await page.goto("/register");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password", { exact: true }).fill("abcdefgh");
-  await page.getByLabel(/confirm password/i).fill("abcdefgh");
-  await page.getByRole("button", { name: /create account/i }).click();
-  await page.waitForURL("**/dashboard");
-  return email;
+async function setup(page: import("@playwright/test").Page) {
+  return registerAndSignIn(page, "docs");
 }
 
 test.describe("document upload", () => {
   test("upload a PDF, see it in the list, delete it", async ({ page }) => {
-    await registerAndSignIn(page);
+    await setup(page);
 
     // Empty state on dashboard
     await expect(page.getByText(/no documents yet/i)).toBeVisible();
@@ -62,7 +53,7 @@ test.describe("document upload", () => {
   });
 
   test("rejects unsupported file type with a visible error", async ({ page }) => {
-    await registerAndSignIn(page);
+    await setup(page);
 
     await page.getByLabel("File", { exact: true }).setInputFiles({
       name: "evil.exe",
@@ -80,7 +71,7 @@ test.describe("document upload", () => {
     // User A uploads
     const ctxA = await browser.newContext();
     const pageA = await ctxA.newPage();
-    await registerAndSignIn(pageA);
+    await setup(pageA);
     await pageA.getByLabel("File", { exact: true }).setInputFiles({
       name: "secret-A.pdf",
       mimeType: "application/pdf",
@@ -94,7 +85,7 @@ test.describe("document upload", () => {
     // User B in a fresh context shouldn't see User A's doc
     const ctxB = await browser.newContext();
     const pageB = await ctxB.newPage();
-    await registerAndSignIn(pageB);
+    await setup(pageB);
     await expect(pageB.getByText("secret-A.pdf")).toBeHidden();
     await expect(pageB.getByText(/no documents yet/i)).toBeVisible();
 

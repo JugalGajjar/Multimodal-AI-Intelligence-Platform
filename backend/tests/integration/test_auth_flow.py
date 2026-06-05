@@ -1,9 +1,11 @@
-"""Full register → login → /me flow against the live backend + Postgres."""
+"""Full register → verify → login → /me flow against the live backend + Postgres."""
 
 import uuid
 
 import httpx
 import pytest
+
+from tests.integration.conftest import STRONG_PASSWORD, mark_user_verified
 
 pytestmark = pytest.mark.integration
 
@@ -25,25 +27,27 @@ def test_register_creates_user(http):
 
     r = http.post(
         "/auth/register",
-        json={"email": email, "password": "abcdefgh"},
+        json={"email": email, "password": STRONG_PASSWORD},
     )
 
     assert r.status_code == 201
     body = r.json()
+    # /register now returns a verification-pending response, not the user row.
     assert body["email"] == email
-    assert "id" in body
-    assert "created_at" in body
-    assert "hashed_password" not in body
+    assert "verification_sent" in body
+    assert isinstance(body["verification_sent"], bool)
+    assert "message" in body
     assert "password" not in body
+    assert "hashed_password" not in body
 
 
 def test_register_rejects_duplicate_email(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": "abcdefgh"})
+    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
 
     r = http.post(
         "/auth/register",
-        json={"email": email, "password": "abcdefgh"},
+        json={"email": email, "password": STRONG_PASSWORD},
     )
 
     assert r.status_code == 409
@@ -58,20 +62,51 @@ def test_register_rejects_short_password(http):
     assert r.status_code == 422
 
 
+def test_register_rejects_weak_password(http):
+    # All-lowercase, missing classes — should fail the validator.
+    r = http.post(
+        "/auth/register",
+        json={"email": unique_email(), "password": "abcdefghij"},
+    )
+    assert r.status_code == 422
+
+
+def test_register_rejects_disposable_domain(http):
+    r = http.post(
+        "/auth/register",
+        json={
+            "email": f"foo-{uuid.uuid4().hex[:6]}@mailinator.com",
+            "password": STRONG_PASSWORD,
+        },
+    )
+    assert r.status_code == 400
+
+
 def test_register_rejects_bad_email(http):
     r = http.post(
         "/auth/register",
-        json={"email": "not-an-email", "password": "abcdefgh"},
+        json={"email": "not-an-email", "password": STRONG_PASSWORD},
     )
 
     assert r.status_code == 422
 
 
+def test_login_rejects_unverified(http):
+    email = unique_email()
+    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+
+    # Without the verify step the account stays is_verified=false → 403.
+    r = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD})
+
+    assert r.status_code == 403
+
+
 def test_login_returns_bearer_token(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": "abcdefgh"})
+    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    mark_user_verified(email)
 
-    r = http.post("/auth/login", json={"email": email, "password": "abcdefgh"})
+    r = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD})
 
     assert r.status_code == 200
     body = r.json()
@@ -82,7 +117,8 @@ def test_login_returns_bearer_token(http):
 
 def test_login_rejects_wrong_password(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": "abcdefgh"})
+    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    mark_user_verified(email)
 
     r = http.post("/auth/login", json={"email": email, "password": "WRONGPASS"})
 
@@ -92,7 +128,7 @@ def test_login_rejects_wrong_password(http):
 def test_login_rejects_unknown_email(http):
     r = http.post(
         "/auth/login",
-        json={"email": unique_email(), "password": "abcdefgh"},
+        json={"email": unique_email(), "password": STRONG_PASSWORD},
     )
 
     assert r.status_code == 401
@@ -100,8 +136,9 @@ def test_login_rejects_unknown_email(http):
 
 def test_me_returns_current_user(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": "abcdefgh"})
-    login = http.post("/auth/login", json={"email": email, "password": "abcdefgh"}).json()
+    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    mark_user_verified(email)
+    login = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD}).json()
     token = login["access_token"]
 
     r = http.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -109,6 +146,7 @@ def test_me_returns_current_user(http):
     assert r.status_code == 200
     body = r.json()
     assert body["email"] == email
+    assert body["is_verified"] is True
     assert "id" in body
     assert "hashed_password" not in body
 
@@ -139,3 +177,28 @@ def test_me_rejects_token_signed_with_wrong_secret(http):
     r = http.get("/auth/me", headers={"Authorization": f"Bearer {bad_token}"})
 
     assert r.status_code == 401
+
+
+def test_forgot_password_returns_generic_message(http):
+    # Even for an unknown email, response must be the same generic shape —
+    # otherwise the endpoint leaks which accounts exist.
+    r = http.post("/auth/forgot-password", json={"email": unique_email()})
+    assert r.status_code == 200
+    assert "message" in r.json()
+
+
+def test_resend_verification_returns_generic_message(http):
+    r = http.post("/auth/resend-verification", json={"email": unique_email()})
+    assert r.status_code == 200
+    assert "message" in r.json()
+
+
+def test_verify_email_rejects_bad_code(http):
+    email = unique_email()
+    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+
+    r = http.post(
+        "/auth/verify-email",
+        json={"email": email, "code": "BADCODE1"},
+    )
+    assert r.status_code == 400

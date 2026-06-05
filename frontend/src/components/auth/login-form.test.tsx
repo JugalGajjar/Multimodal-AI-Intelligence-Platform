@@ -11,6 +11,8 @@ vi.mock("next/navigation", () => ({
 import { LoginForm } from "./login-form";
 import { useAuthStore } from "@/store/auth";
 
+const STRONG = "StrongP@ss1";
+
 describe("<LoginForm />", () => {
   const fetchMock = vi.fn();
 
@@ -38,7 +40,8 @@ describe("<LoginForm />", () => {
           JSON.stringify({
             id: "u-1",
             email: "a@b.com",
-            created_at: "2025-01-01T00:00:00Z",
+            is_verified: true,
+            created_at: "2026-01-01T00:00:00Z",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
@@ -46,8 +49,8 @@ describe("<LoginForm />", () => {
 
     render(<LoginForm />);
 
-    await userEvent.type(screen.getByLabelText(/email/i), "a@b.com");
-    await userEvent.type(screen.getByLabelText(/password/i), "abcdefgh");
+    await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
+    await userEvent.type(screen.getByLabelText("Password"), STRONG);
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() => {
@@ -57,6 +60,7 @@ describe("<LoginForm />", () => {
     const state = useAuthStore.getState();
     expect(state.token).toBe("tok-abc");
     expect(state.user?.email).toBe("a@b.com");
+    expect(state.user?.isVerified).toBe(true);
     expect(state.isAuthenticated).toBe(true);
   });
 
@@ -70,8 +74,8 @@ describe("<LoginForm />", () => {
 
     render(<LoginForm />);
 
-    await userEvent.type(screen.getByLabelText(/email/i), "a@b.com");
-    await userEvent.type(screen.getByLabelText(/password/i), "wrongpassword");
+    await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
+    await userEvent.type(screen.getByLabelText("Password"), "wrongpassword");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -79,5 +83,27 @@ describe("<LoginForm />", () => {
     );
     expect(pushMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
+  });
+
+  it("offers a verify-email link when the account isn't verified (403)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ detail: "Email not verified. Check your inbox for the code." }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    render(<LoginForm />);
+
+    await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
+    await userEvent.type(screen.getByLabelText("Password"), STRONG);
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/isn(’|')t verified/i);
+    const link = screen.getByRole("link", {
+      name: /enter your verification code/i,
+    });
+    expect(link).toHaveAttribute("href", "/verify-email?email=a%40b.com");
   });
 });
