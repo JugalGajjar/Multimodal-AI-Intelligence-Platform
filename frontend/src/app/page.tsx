@@ -1,7 +1,6 @@
 import { ArrowRight, FileText, Image as ImageIcon, Mic, Network } from "lucide-react";
 import Link from "next/link";
 
-import { HealthStatus } from "@/components/health-status";
 import { BrandMark } from "@/components/layout/brand-mark";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
@@ -47,11 +46,6 @@ export default function Home() {
 
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-16 sm:py-24">
         <section className="flex max-w-3xl flex-col items-center gap-8 text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/60 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur-sm">
-            <span className="size-1.5 rounded-full bg-gradient-brand" />
-            Multimodal RAG, end to end
-          </span>
-
           <h1 className="text-4xl font-semibold leading-[1.1] tracking-tight sm:text-6xl">
             Chat with everything
             <br />
@@ -103,15 +97,7 @@ export default function Home() {
             </article>
           ))}
         </section>
-
-        <section className="mt-16">
-          <HealthStatus />
-        </section>
       </main>
-
-      <footer className="border-t border-border/60 px-6 py-6 text-center text-xs text-muted-foreground sm:px-10">
-        Built with FastAPI, Next.js, Qdrant, and Neo4j.
-      </footer>
     </div>
   );
 }

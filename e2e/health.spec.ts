@@ -11,14 +11,6 @@ test.describe("landing page + backend smoke", () => {
     await expect(page.getByTestId("brand-mark").first()).toBeVisible();
   });
 
-  test("health pill shows ok / version / environment", async ({ page }) => {
-    await page.goto("/");
-
-    await expect(
-      page.getByText(/backend ok · v0\.1\.0 · development/i),
-    ).toBeVisible({ timeout: 10_000 });
-  });
-
   test("backend /api/v1/health is reachable from the browser context", async ({
     page,
     request,
