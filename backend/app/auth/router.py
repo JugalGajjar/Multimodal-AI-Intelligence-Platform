@@ -1,13 +1,14 @@
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.blocklist import is_disposable
 from app.auth.deps import get_current_user
+from app.auth.lockout import clear_failed_logins, is_locked_out, record_failed_login
 from app.auth.models import User
 from app.auth.schemas import (
     ForgotPasswordRequest,
@@ -27,6 +28,7 @@ from app.auth.security import (
     hash_password,
     verify_password,
 )
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.email.client import send_email
 from app.email.templates import password_reset_email, verification_email
@@ -63,7 +65,8 @@ async def _set_password_reset_code(user: User) -> str:
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def register(payload: UserRegister, db: DbDep) -> RegisterResponse:
+@limiter.limit("5/hour")
+async def register(request: Request, payload: UserRegister, db: DbDep) -> RegisterResponse:
     if is_disposable(str(payload.email)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -107,7 +110,8 @@ async def register(payload: UserRegister, db: DbDep) -> RegisterResponse:
 
 
 @router.post("/verify-email", response_model=TokenResponse)
-async def verify_email(payload: VerifyEmailRequest, db: DbDep) -> TokenResponse:
+@limiter.limit("10/15minute")
+async def verify_email(request: Request, payload: VerifyEmailRequest, db: DbDep) -> TokenResponse:
     user = (await db.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
     if user is None:
         raise HTTPException(
@@ -139,7 +143,10 @@ async def verify_email(payload: VerifyEmailRequest, db: DbDep) -> TokenResponse:
 
 
 @router.post("/resend-verification", response_model=GenericMessage)
-async def resend_verification(payload: ResendVerificationRequest, db: DbDep) -> GenericMessage:
+@limiter.limit("3/hour")
+async def resend_verification(
+    request: Request, payload: ResendVerificationRequest, db: DbDep
+) -> GenericMessage:
     user = (await db.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
     # Generic response either way — don't leak whether the email exists.
     if user is None or user.is_verified:
@@ -153,10 +160,21 @@ async def resend_verification(payload: ResendVerificationRequest, db: DbDep) -> 
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: UserLogin, db: DbDep) -> TokenResponse:
+@limiter.limit("10/15minute")
+async def login(request: Request, payload: UserLogin, db: DbDep) -> TokenResponse:
+    # Per-account lockout — separate from the per-IP rate limit above.
+    locked, retry_after = await is_locked_out(payload.email)
+    if locked:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed attempts. Try again in {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.hashed_password):
+        await record_failed_login(payload.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -167,12 +185,16 @@ async def login(payload: UserLogin, db: DbDep) -> TokenResponse:
             detail="Email not verified. Check your inbox for the code.",
         )
 
+    await clear_failed_logins(payload.email)
     token = create_access_token(str(user.id))
     return TokenResponse(access_token=token)
 
 
 @router.post("/forgot-password", response_model=GenericMessage)
-async def forgot_password(payload: ForgotPasswordRequest, db: DbDep) -> GenericMessage:
+@limiter.limit("3/hour")
+async def forgot_password(
+    request: Request, payload: ForgotPasswordRequest, db: DbDep
+) -> GenericMessage:
     user = (await db.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
     # Always return the same shape so callers can't enumerate accounts.
     if user is not None and user.is_verified:
@@ -184,7 +206,10 @@ async def forgot_password(payload: ForgotPasswordRequest, db: DbDep) -> GenericM
 
 
 @router.post("/reset-password", response_model=TokenResponse)
-async def reset_password(payload: ResetPasswordRequest, db: DbDep) -> TokenResponse:
+@limiter.limit("5/15minute")
+async def reset_password(
+    request: Request, payload: ResetPasswordRequest, db: DbDep
+) -> TokenResponse:
     user = (await db.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
     if user is None or not user.is_verified:
         raise HTTPException(

@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     resend_from_email: str = "onboarding@resend.dev"
 
+    # Per-IP rate limiting on /auth/*. Tests flip this off via env to keep
+    # the unit suite hermetic.
+    rate_limit_enabled: bool = True
+    # Per-account login lockout — count failed logins, lock after N in window.
+    auth_lockout_threshold: int = 5
+    auth_lockout_window_sec: int = 900  # 15 minutes
+
     # Knowledge-graph expansion. `graph_max_hops` is clamped to 1..3.
     # `graph_max_facts_per_seed` caps facts per seed regardless of depth —
     # closer hops are preferred when capping.

@@ -8,6 +8,10 @@ os.environ.setdefault("REDIS_HOST", "127.0.0.1")
 os.environ.setdefault("QDRANT_HOST", "127.0.0.1")
 os.environ.setdefault("MINIO_ENDPOINT", "127.0.0.1:9000")
 os.environ.setdefault("NEO4J_URI", "bolt://127.0.0.1:7687")
+# Rate limits would make the unit suite hit slowapi's Redis backend and
+# blow up the per-IP count across runs. Off by default; integration tests
+# that exercise the limit re-enable it explicitly.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

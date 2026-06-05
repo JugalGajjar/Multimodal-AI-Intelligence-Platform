@@ -29,6 +29,9 @@ jobs:
           # We don't bring up jaeger; force OTEL off so backend/worker don't
           # spend startup spinning on a missing OTLP collector.
           sed -i 's/^OTEL_ENABLED=.*/OTEL_ENABLED=false/' .env
+          # Tests register many users from the same runner IP — rate limit
+          # would 429 the suite after a handful of attempts.
+          sed -i 's/^RATE_LIMIT_ENABLED=.*/RATE_LIMIT_ENABLED=false/' .env
           # traefik is needed by test_infra.py (dashboard + host-header routes).
           docker compose up -d postgres redis qdrant neo4j minio minio-init backend worker traefik
 
@@ -90,6 +93,9 @@ jobs:
         run: |
           cp .env.example .env
           sed -i 's/^OTEL_ENABLED=.*/OTEL_ENABLED=false/' .env
+          # Tests register many users from the same runner IP — rate limit
+          # would 429 the suite after a handful of attempts.
+          sed -i 's/^RATE_LIMIT_ENABLED=.*/RATE_LIMIT_ENABLED=false/' .env
           docker compose up -d
 
       - name: Wait for frontend
