@@ -25,7 +25,9 @@ def real_client_ip(request: Request) -> str:
 def _storage_uri() -> str:
     if not settings.rate_limit_enabled:
         return "memory://"
-    scheme = "async+rediss" if settings.redis_secure else "async+redis"
+    # Sync redis-py storage — slowapi's default strategy doesn't pair with the
+    # async storage backend. Auth endpoints are low-QPS; the sync hop is fine.
+    scheme = "rediss" if settings.redis_secure else "redis"
     auth = f":{settings.redis_password}@" if settings.redis_password else ""
     return f"{scheme}://{auth}{settings.redis_host}:{settings.redis_port}"
 
