@@ -26,6 +26,9 @@ jobs:
       - name: Compose up (dev stack)
         run: |
           cp .env.example .env
+          # We don't bring up jaeger; force OTEL off so backend/worker don't
+          # spend startup spinning on a missing OTLP collector.
+          sed -i 's/^OTEL_ENABLED=.*/OTEL_ENABLED=false/' .env
           # traefik is needed by test_infra.py (dashboard + host-header routes).
           docker compose up -d postgres redis qdrant neo4j minio minio-init backend worker traefik
 
@@ -65,7 +68,16 @@ jobs:
 
       - name: Dump backend logs on failure
         if: failure()
-        run: docker compose logs --tail 200 backend worker
+        run: |
+          echo "::group::backend logs"
+          docker compose logs --tail 400 backend
+          echo "::endgroup::"
+          echo "::group::worker logs"
+          docker compose logs --tail 800 worker
+          echo "::endgroup::"
+          echo "::group::compose ps"
+          docker compose ps
+          echo "::endgroup::"
 
   e2e:
     name: e2e (Playwright against dev stack)
@@ -77,6 +89,7 @@ jobs:
       - name: Compose up (dev stack)
         run: |
           cp .env.example .env
+          sed -i 's/^OTEL_ENABLED=.*/OTEL_ENABLED=false/' .env
           docker compose up -d
 
       - name: Wait for frontend
@@ -152,7 +165,13 @@ jobs:
 
       - name: Dump backend + worker logs on failure
         if: failure()
-        run: docker compose logs --tail 300 backend worker
+        run: |
+          echo "::group::backend logs"
+          docker compose logs --tail 400 backend
+          echo "::endgroup::"
+          echo "::group::worker logs"
+          docker compose logs --tail 800 worker
+          echo "::endgroup::"
 
       - name: Upload Playwright report on failure
         if: failure()

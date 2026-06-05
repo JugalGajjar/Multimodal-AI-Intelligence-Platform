@@ -50,16 +50,31 @@ def http_get(url: str, timeout: float = 5.0) -> tuple[int, bytes]:
 
 def mark_user_verified(email: str) -> None:
     """Flip is_verified=true directly in Postgres so a sync test can /login
-    without going through the email-code flow. Uses a fresh event loop —
-    only safe from sync tests."""
-    from sqlalchemy import update
+    without going through the email-code flow.
 
-    from app.auth.models import User
-    from app.db.session import async_session_maker
+    Uses raw asyncpg — going through SQLAlchemy's async_session_maker reuses
+    a pooled connection across asyncio.run() calls, and asyncpg connections
+    are tied to a single event loop. A fresh asyncpg.connect() per call
+    avoids the cross-loop reuse.
+    """
+    import asyncpg
+
+    from app.core.config import settings
 
     async def _run() -> None:
-        async with async_session_maker() as session:
-            await session.execute(update(User).where(User.email == email).values(is_verified=True))
-            await session.commit()
+        conn = await asyncpg.connect(
+            host=settings.postgres_host,
+            port=settings.postgres_port,
+            user=settings.postgres_user,
+            password=settings.postgres_password,
+            database=settings.postgres_db,
+        )
+        try:
+            await conn.execute(
+                "UPDATE users SET is_verified = TRUE WHERE email = $1",
+                email,
+            )
+        finally:
+            await conn.close()
 
     asyncio.run(_run())
