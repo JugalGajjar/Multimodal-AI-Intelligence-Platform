@@ -1,7 +1,9 @@
 """Defensive HTTP headers for every API response.
 
-The API is JSON-only — no inline scripts, no frames — so the CSP can be
-maximally restrictive. The Vercel frontend has its own headers() block.
+X-Frame-Options / CSP frame-ancestors are deliberately omitted — the API
+returns JSON, not interactive HTML, so clickjacking doesn't apply, and
+asserting DENY breaks the HF Spaces dashboard preview iframe. The Vercel
+frontend (which actually serves HTML) sets those headers strictly itself.
 """
 
 from __future__ import annotations
@@ -13,10 +15,9 @@ from starlette.responses import Response
 _HEADERS: dict[str, str] = {
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'none'",
 }
 
 

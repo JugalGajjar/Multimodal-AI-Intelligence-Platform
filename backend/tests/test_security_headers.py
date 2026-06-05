@@ -3,7 +3,6 @@
 EXPECTED = {
     "Strict-Transport-Security": "max-age=63072000",
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
     "Permissions-Policy": "camera=()",
     "Content-Security-Policy": "default-src 'none'",
