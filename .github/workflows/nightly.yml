@@ -108,15 +108,24 @@ jobs:
         run: |
           set -e
           EMAIL="warmup-$(date +%s)@evalbot.io"
-          PASS="WarmupP@ss123"
+          PASS="WarmupP@ss1"
           API=http://localhost:8000/api/v1
 
-          curl -sf -X POST "$API/auth/register" \
+          # Register and extract the dev verification code (only returned
+          # when RESEND_API_KEY is unset — i.e. CI/local).
+          REG=$(curl -sf -X POST "$API/auth/register" \
             -H 'Content-Type: application/json' \
-            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" > /dev/null
-          TOKEN=$(curl -sf -X POST "$API/auth/login" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}")
+          CODE=$(echo "$REG" | jq -r .dev_verification_code)
+          if [ -z "$CODE" ] || [ "$CODE" = "null" ]; then
+            echo "::error::register did not return dev_verification_code — RESEND_API_KEY may be set in CI?"
+            exit 1
+          fi
+
+          # Verify the account; this hands back an access_token directly.
+          TOKEN=$(curl -sf -X POST "$API/auth/verify-email" \
             -H 'Content-Type: application/json' \
-            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" | jq -r .access_token)
+            -d "{\"email\":\"$EMAIL\",\"code\":\"$CODE\"}" | jq -r .access_token)
 
           echo "warming up worker" > /tmp/warmup.txt
           DOC_ID=$(curl -sf -X POST "$API/documents" \
