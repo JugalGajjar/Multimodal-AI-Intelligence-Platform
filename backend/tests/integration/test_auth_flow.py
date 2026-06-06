@@ -105,6 +105,8 @@ def test_register_rejects_disposable_domain(http):
         json={
             "email": f"foo-{uuid.uuid4().hex[:6]}@mailinator.com",
             "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
         },
     )
     assert r.status_code == 400

@@ -134,7 +134,7 @@ jobs:
           # when RESEND_API_KEY is unset — i.e. CI/local).
           REG=$(curl -sf -X POST "$API/auth/register" \
             -H 'Content-Type: application/json' \
-            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}")
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\",\"first_name\":\"Warmup\",\"last_name\":\"Bot\"}")
           CODE=$(echo "$REG" | jq -r .dev_verification_code)
           if [ -z "$CODE" ] || [ "$CODE" = "null" ]; then
             echo "::error::register did not return dev_verification_code — RESEND_API_KEY may be set in CI?"
