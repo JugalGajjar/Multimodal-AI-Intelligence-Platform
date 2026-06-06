@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -16,10 +17,19 @@ from app.core.middleware import HttpMetricsMiddleware, RequestIdMiddleware
 from app.core.rate_limit import limiter
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.tracing import configure_tracing
+from app.storage.qdrant_client import ensure_collection
+
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Idempotent — creates collection + payload indexes if missing.
+    # Failure shouldn't block startup; the worker also calls this per-job.
+    try:
+        ensure_collection()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("ensure_collection at startup failed: %s", exc)
     yield
 
 

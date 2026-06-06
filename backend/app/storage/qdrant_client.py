@@ -1,14 +1,25 @@
 """Qdrant client + collection bootstrap."""
 
+import logging
 from functools import lru_cache
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.core.config import settings
 
+log = logging.getLogger(__name__)
+
 COLLECTION_NAME = "mmap_chunks"
 VECTOR_SIZE = 384  # BAAI/bge-small-en-v1.5
+
+# Qdrant Cloud refuses payload filters without an index. Self-hosted is
+# lenient — these two fields are what we always filter on.
+_INDEXED_PAYLOAD_FIELDS: tuple[tuple[str, qmodels.PayloadSchemaType], ...] = (
+    ("user_id", qmodels.PayloadSchemaType.KEYWORD),
+    ("document_id", qmodels.PayloadSchemaType.KEYWORD),
+)
 
 
 @lru_cache(maxsize=1)
@@ -32,6 +43,19 @@ def ensure_collection() -> None:
                 distance=qmodels.Distance.COSINE,
             ),
         )
+
+    # Idempotent — Qdrant returns a benign error if the index already exists.
+    for field_name, schema in _INDEXED_PAYLOAD_FIELDS:
+        try:
+            client.create_payload_index(
+                collection_name=COLLECTION_NAME,
+                field_name=field_name,
+                field_schema=schema,
+            )
+        except UnexpectedResponse as exc:
+            # 4xx with "already exists" is fine; re-raise anything else.
+            if "already exists" not in str(exc).lower():
+                log.warning("payload index create failed for %s: %s", field_name, exc)
 
 
 def delete_points_for_document(document_id: str) -> None:
