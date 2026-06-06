@@ -9,6 +9,8 @@ from app.auth.passwords import PasswordError, validate_password
 class UserRegister(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=32)
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
 
     @model_validator(mode="after")
     def _check_password(self) -> "UserRegister":
@@ -30,6 +32,8 @@ class UserResponse(BaseModel):
     id: UUID
     email: EmailStr
     is_verified: bool
+    first_name: str | None = None
+    last_name: str | None = None
     created_at: datetime
 
 

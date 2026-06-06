@@ -37,6 +37,16 @@ export async function apiFetch<T>(
     } catch {
       // leave body as raw text
     }
+
+    // A 401 on a request that DID send a token means the session expired or
+    // was invalidated. Clear the local store and bounce to /login so the user
+    // doesn't get stuck on a page full of "Failed to load" cards.
+    // A 401 without a token (e.g. login attempt with wrong password) is a
+    // normal validation error and stays as the caller's responsibility.
+    if (response.status === 401 && token && typeof window !== "undefined") {
+      handleSessionExpired();
+    }
+
     throw new ApiError(
       `Request failed: ${response.status} ${response.statusText}`,
       response.status,
@@ -45,6 +55,20 @@ export async function apiFetch<T>(
   }
 
   return (await response.json()) as T;
+}
+
+function handleSessionExpired(): void {
+  try {
+    // Dynamic import avoids any boot-time cycle between api.ts ↔ store/auth.
+    import("@/store/auth").then(({ useAuthStore }) => {
+      useAuthStore.getState().clearSession();
+    });
+  } catch {
+    // store unavailable in this environment — skip the local cleanup
+  }
+  if (window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
 }
 
 export type HealthResponse = {

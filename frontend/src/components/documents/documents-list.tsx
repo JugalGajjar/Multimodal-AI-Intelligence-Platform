@@ -52,11 +52,24 @@ const STATUS_VARIANT: Record<
   failed: "destructive",
 };
 
-function hasInFlight(items: DocumentItem[] | undefined): boolean {
-  return (
-    !!items &&
-    items.some((d) => d.status === "uploaded" || d.status === "processing")
+/** Decide how aggressively to poll /documents based on item state.
+ *  - "uploaded" / "processing": worker is actively running → poll fast.
+ *  - "processed" without a summary, recently updated: summary writes happen
+ *    AFTER status flips to processed, so keep polling briefly to catch them.
+ *  - Otherwise: stop polling. */
+function pollIntervalMs(items: DocumentItem[] | undefined): number | false {
+  if (!items) return false;
+  if (items.some((d) => d.status === "uploaded" || d.status === "processing")) {
+    return 1500;
+  }
+  const now = Date.now();
+  const waitingForSummary = items.some(
+    (d) =>
+      d.status === "processed" &&
+      !d.summary &&
+      now - new Date(d.updated_at).getTime() < 60_000,
   );
+  return waitingForSummary ? 2500 : false;
 }
 
 function iconForMime(mime: string) {
@@ -76,8 +89,7 @@ export function DocumentsList() {
     queryKey: ["documents"],
     queryFn: () => listDocuments(token!),
     enabled: !!token,
-    refetchInterval: (query) =>
-      hasInFlight(query.state.data?.items) ? 1500 : false,
+    refetchInterval: (query) => pollIntervalMs(query.state.data?.items),
   });
 
   const deleteMutation = useMutation({
@@ -171,7 +183,7 @@ export function DocumentsList() {
         )}
         {data && data.items.length > 0 && (
           <ul
-            className="max-h-[260px] space-y-3 overflow-y-auto pr-1"
+            className="max-h-[400px] space-y-3 overflow-y-auto pr-1"
             data-testid="documents-scroll"
           >
             {data.items.map((doc) => {

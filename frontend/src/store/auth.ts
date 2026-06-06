@@ -5,6 +5,8 @@ export type AuthUser = {
   id: string;
   email: string;
   isVerified?: boolean;
+  firstName?: string | null;
+  lastName?: string | null;
 };
 
 type AuthState = {

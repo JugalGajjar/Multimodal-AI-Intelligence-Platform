@@ -1,8 +1,9 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { CloudUpload, Loader2, UploadCloud } from "lucide-react";
+import { CloudUpload, Loader2, UploadCloud, X } from "lucide-react";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -22,8 +23,8 @@ const ACCEPTED =
 export function DocumentUploader({
   compact = false,
 }: {
-  /** When true, renders a slimmer card for in-context placement (e.g. the
-   *  dashboard, where the full uploader would dominate the page). */
+  /** When true, renders a slim single-row uploader suitable for placing
+   *  alongside other components without dominating the viewport. */
   compact?: boolean;
 }) {
   const token = useAuthStore((s) => s.token);
@@ -38,10 +39,15 @@ export function DocumentUploader({
     if (!file || !token) return;
     setError(null);
     setSubmitting(true);
+    const uploadedName = file.name;
     try {
       await uploadDocument(token, file);
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
+      toast.success(uploadedName, {
+        description: "Uploaded successfully.",
+        duration: 5000,
+      });
       await queryClient.invalidateQueries({ queryKey: ["documents"] });
     } catch (err) {
       if (err instanceof ApiError && err.status === 415) {
@@ -68,12 +74,101 @@ export function DocumentUploader({
     handleFileSelect(e.dataTransfer.files?.[0]);
   }
 
+  // Slim, single-row variant: dropzone left, file info + button right.
+  if (compact) {
+    return (
+      <Card
+        className="glass w-full px-4 py-3"
+        data-testid="document-uploader"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <label
+            htmlFor="file"
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            className={
+              "flex flex-1 cursor-pointer items-center gap-3 rounded-lg border border-dashed px-4 py-2.5 transition-colors " +
+              (dragOver
+                ? "border-[color:var(--brand)] bg-accent/40"
+                : "border-border/70 hover:border-[color:var(--brand)] hover:bg-accent/30")
+            }
+          >
+            <span
+              aria-hidden="true"
+              className="grid size-8 shrink-0 place-items-center rounded-md bg-gradient-brand text-brand-foreground glow-brand"
+            >
+              <CloudUpload className="size-4" />
+            </span>
+            {file ? (
+              <span className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+                <span className="truncate font-medium">{file.name}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  ({(file.size / 1024).toFixed(1)} KB)
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setFile(null);
+                    if (inputRef.current) inputRef.current.value = "";
+                  }}
+                  aria-label="Clear selected file"
+                  className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </span>
+            ) : (
+              <span className="min-w-0 flex-1 text-sm">
+                <span className="font-medium">Drop a file or click</span>{" "}
+                <span className="hidden text-xs text-muted-foreground sm:inline">
+                  (PDF, image, audio, text. 50 MB max.)
+                </span>
+              </span>
+            )}
+            <input
+              ref={inputRef}
+              id="file"
+              type="file"
+              accept={ACCEPTED}
+              onChange={(e) => handleFileSelect(e.target.files?.[0])}
+              className="sr-only"
+              aria-label="File"
+            />
+          </label>
+          <Button
+            onClick={onUpload}
+            disabled={!file || submitting}
+            size="sm"
+            className="bg-gradient-brand text-brand-foreground glow-brand px-5 sm:w-auto"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                Uploading
+              </>
+            ) : (
+              "Upload"
+            )}
+          </Button>
+        </div>
+        {error && (
+          <p role="alert" className="mt-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+      </Card>
+    );
+  }
+
+  // Full uploader (used on /dashboard/documents) — original layout.
   return (
-    <Card
-      className={"glass w-full " + (compact ? "py-4" : "py-6")}
-      data-testid="document-uploader"
-    >
-      <CardHeader className={"pb-2 " + (compact ? "px-5" : "px-6")}>
+    <Card className="glass w-full py-6" data-testid="document-uploader">
+      <CardHeader className="px-6 pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <UploadCloud className="size-4 text-[color:var(--brand)]" aria-hidden="true" />
           Upload a document
@@ -82,11 +177,7 @@ export function DocumentUploader({
           PDF, image, audio, or text. 50 MB max.
         </CardDescription>
       </CardHeader>
-      <CardContent
-        className={
-          "pt-2 " + (compact ? "space-y-3 px-5" : "space-y-5 px-6")
-        }
-      >
+      <CardContent className="space-y-5 px-6 pt-2">
         <label
           htmlFor="file"
           onDragOver={(e) => {
@@ -96,8 +187,7 @@ export function DocumentUploader({
           onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
           className={
-            "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed text-center transition-colors " +
-            (compact ? "px-5 py-6 " : "px-6 py-12 ") +
+            "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors " +
             (dragOver
               ? "border-[color:var(--brand)] bg-accent/40"
               : "border-border/70 hover:border-[color:var(--brand)] hover:bg-accent/30")
@@ -105,12 +195,9 @@ export function DocumentUploader({
         >
           <span
             aria-hidden="true"
-            className={
-              "grid place-items-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand " +
-              (compact ? "size-9" : "size-11")
-            }
+            className="grid size-11 place-items-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
           >
-            <CloudUpload className={compact ? "size-4" : "size-5"} />
+            <CloudUpload className="size-5" />
           </span>
           {file ? (
             <span className="text-sm">
@@ -125,7 +212,7 @@ export function DocumentUploader({
                 Drop a file or click to choose
               </p>
               <p className="text-xs text-muted-foreground">
-                PDF · PNG · JPG · WebP · MP3 · WAV · TXT · MD
+                PDF, PNG, JPG, WebP, MP3, WAV, TXT, MD
               </p>
             </div>
           )}
@@ -155,10 +242,10 @@ export function DocumentUploader({
             {submitting ? (
               <>
                 <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                Uploading…
+                Uploading
               </>
             ) : (
-              <>Upload</>
+              "Upload"
             )}
           </Button>
         </div>

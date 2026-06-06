@@ -4,6 +4,8 @@ export type AuthUserApi = {
   id: string;
   email: string;
   is_verified: boolean;
+  first_name: string | null;
+  last_name: string | null;
   created_at: string;
 };
 
@@ -25,10 +27,17 @@ export type GenericMessageApi = {
 export function registerUser(
   email: string,
   password: string,
+  firstName: string,
+  lastName: string,
 ): Promise<RegisterResponseApi> {
   return apiFetch<RegisterResponseApi>("/api/v1/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({
+      email,
+      password,
+      first_name: firstName,
+      last_name: lastName,
+    }),
   });
 }
 

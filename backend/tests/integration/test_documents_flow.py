@@ -37,9 +37,25 @@ def http():
 def auth(http):
     """Register a fresh user and return {'token': ..., 'email': ...}."""
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
     mark_user_verified(email)
-    login = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD}).json()
+    login = http.post(
+        "/auth/login",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    ).json()
     return {"token": login["access_token"], "email": email}
 
 
@@ -107,10 +123,24 @@ def test_list_returns_only_owned_documents(http, auth):
 
     # Other user — registers and uploads one
     other_email = unique_email()
-    http.post("/auth/register", json={"email": other_email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": other_email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
     mark_user_verified(other_email)
     other_login = http.post(
-        "/auth/login", json={"email": other_email, "password": STRONG_PASSWORD}
+        "/auth/login",
+        json={
+            "email": other_email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     ).json()
     http.post(
         "/documents",
@@ -151,10 +181,24 @@ def test_get_other_users_doc_returns_404(http, auth):
 
     # Other user
     other_email = unique_email()
-    http.post("/auth/register", json={"email": other_email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": other_email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
     mark_user_verified(other_email)
     other_login = http.post(
-        "/auth/login", json={"email": other_email, "password": STRONG_PASSWORD}
+        "/auth/login",
+        json={
+            "email": other_email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     ).json()
 
     r = http.get(
@@ -188,10 +232,24 @@ def test_delete_other_users_doc_returns_404(http, auth):
     ).json()
 
     other_email = unique_email()
-    http.post("/auth/register", json={"email": other_email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": other_email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
     mark_user_verified(other_email)
     other_login = http.post(
-        "/auth/login", json={"email": other_email, "password": STRONG_PASSWORD}
+        "/auth/login",
+        json={
+            "email": other_email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     ).json()
 
     r = http.delete(

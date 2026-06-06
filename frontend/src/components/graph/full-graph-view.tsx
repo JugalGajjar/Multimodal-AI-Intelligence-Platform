@@ -111,8 +111,8 @@ export function FullGraphView() {
   }, [data, search]);
 
   return (
-    <div className="flex flex-col gap-6" data-testid="full-graph-view">
-      <header className="flex flex-col gap-2">
+    <div className="flex flex-col gap-4" data-testid="full-graph-view">
+      <header className="flex flex-col gap-1.5">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Knowledge
         </p>
@@ -120,8 +120,7 @@ export function FullGraphView() {
           <span className="text-gradient-brand">Knowledge graph</span>
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Every entity and relationship the platform extracted from your
-          uploads. Searchable, navigable, and tied back to source documents.
+          Every entity and relationship the platform extracted from your uploads.
         </p>
 
         {data && (
@@ -151,9 +150,9 @@ export function FullGraphView() {
         )}
       </header>
 
-      <div className="grid w-full gap-6 lg:grid-cols-[1fr_340px]">
-        <Card className="glass overflow-hidden py-6">
-          <CardHeader className="px-6 pb-3">
+      <div className="grid w-full gap-6 lg:grid-cols-[1fr_260px]">
+        <Card className="glass overflow-hidden py-4">
+          <CardHeader className="px-5 pb-2">
             <div className="space-y-2.5">
               <Label
                 htmlFor="kg-search"
@@ -177,7 +176,7 @@ export function FullGraphView() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="px-6">
+          <CardContent className="px-5 pb-3">
             {query.isLoading && (
               <p
                 className="py-10 text-center text-sm text-muted-foreground"
@@ -201,7 +200,7 @@ export function FullGraphView() {
               <KnowledgeGraph
                 nodes={filtered.nodes}
                 links={filtered.links}
-                height={560}
+                height={400}
                 highlighted={searchHighlighted}
                 onNodeClick={(node) => setSelectedId(node.id)}
               />
@@ -218,10 +217,10 @@ export function FullGraphView() {
               onClose={() => setSelectedId(null)}
             />
           ) : (
-            <Card className="glass h-full py-6">
-              <CardHeader className="px-6">
-                <CardTitle className="text-base">Entity details</CardTitle>
-                <CardDescription className="mt-1">
+            <Card className="glass h-full py-4">
+              <CardHeader className="px-5">
+                <CardTitle className="text-sm">Entity details</CardTitle>
+                <CardDescription className="mt-1 text-xs">
                   Click a node to see its description and relationships.
                 </CardDescription>
               </CardHeader>
@@ -267,10 +266,10 @@ function SelectedNodePanel({
   onClose: () => void;
 }) {
   return (
-    <Card className="glass py-6" data-testid="kg-selected">
-      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 px-6">
+    <Card className="glass py-4" data-testid="kg-selected">
+      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 px-5">
         <div className="space-y-1.5">
-          <CardTitle className="text-base break-all">{node.name}</CardTitle>
+          <CardTitle className="text-sm break-all">{node.name}</CardTitle>
           <CardDescription className="flex items-center gap-2">
             <span
               aria-hidden="true"
@@ -290,7 +289,7 @@ function SelectedNodePanel({
           <X className="size-4" aria-hidden="true" />
         </Button>
       </CardHeader>
-      <CardContent className="space-y-5 px-6 text-xs">
+      <CardContent className="max-h-[420px] space-y-4 overflow-y-auto px-5 text-xs">
         {node.description && (
           <p className="text-foreground/90 leading-relaxed">{node.description}</p>
         )}

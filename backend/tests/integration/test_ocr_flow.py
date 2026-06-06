@@ -27,11 +27,25 @@ def http():
 @pytest.fixture
 def auth(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
     mark_user_verified(email)
-    tok = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD}).json()[
-        "access_token"
-    ]
+    tok = http.post(
+        "/auth/login",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    ).json()["access_token"]
     return {"Authorization": f"Bearer {tok}"}
 
 
@@ -95,12 +109,22 @@ def test_text_endpoint_404_for_other_users_doc(http, auth):
     other_email = unique_email()
     httpx.post(
         f"{BASE_URL}/auth/register",
-        json={"email": other_email, "password": STRONG_PASSWORD},
+        json={
+            "email": other_email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     )
     mark_user_verified(other_email)
     other_tok = httpx.post(
         f"{BASE_URL}/auth/login",
-        json={"email": other_email, "password": STRONG_PASSWORD},
+        json={
+            "email": other_email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     ).json()["access_token"]
 
     r = http.get(

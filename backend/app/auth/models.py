@@ -19,6 +19,11 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Nullable so users who registered before names were required keep working.
+    # New registrations require them at the schema layer.
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     # Codes are stored bcrypt-hashed; cleared on use or supersede.
     verification_code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     verification_code_expires_at: Mapped[datetime | None] = mapped_column(

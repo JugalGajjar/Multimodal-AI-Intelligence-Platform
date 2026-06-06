@@ -84,6 +84,8 @@ async def register(request: Request, payload: UserRegister, db: DbDep) -> Regist
         email=payload.email,
         hashed_password=hash_password(payload.password),
         is_verified=False,
+        first_name=payload.first_name.strip(),
+        last_name=payload.last_name.strip(),
     )
     code = await _set_verification_code(user)
     db.add(user)

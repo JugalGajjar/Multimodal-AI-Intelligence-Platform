@@ -24,7 +24,7 @@ export default function DocumentsPage() {
           </header>
 
           <div className="flex flex-col gap-6">
-            <DocumentUploader />
+            <DocumentUploader compact />
             <DocumentsList />
           </div>
         </div>

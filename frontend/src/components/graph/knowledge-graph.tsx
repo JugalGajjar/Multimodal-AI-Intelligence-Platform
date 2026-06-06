@@ -63,6 +63,10 @@ function labelColors(): { fill: string; stroke: string } {
     : { fill: "#0f172a", stroke: "rgba(255,255,255,0.9)" };
 }
 
+type ForceGraphMethods = {
+  zoomToFit: (durationMs?: number, padding?: number) => void;
+};
+
 export function KnowledgeGraph({
   nodes,
   links,
@@ -73,6 +77,7 @@ export function KnowledgeGraph({
   showLegend = true,
 }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fgRef = useRef<ForceGraphMethods | null>(null);
 
   const graphData = useMemo(() => {
     const enrichedNodes: ForceNode[] = nodes.map((n) => ({
@@ -109,10 +114,17 @@ export function KnowledgeGraph({
         style={{ height }}
       >
         <ForceGraph2D
+          // next/dynamic erases the precise ref type; the runtime instance
+          // does expose zoomToFit. Cast through `any` once and move on.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ref={fgRef as any}
           graphData={graphData}
           width={width}
           height={height}
           backgroundColor="transparent"
+          // Once the force simulation settles, fit the bbox into the viewport
+          // so the centroid lands at the center and the whole graph is visible.
+          onEngineStop={() => fgRef.current?.zoomToFit(400, 40)}
           nodeLabel={(n) => {
             const node = n as unknown as ForceNode;
             return node.description

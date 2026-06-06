@@ -21,6 +21,8 @@ import { firstPasswordError } from "@/lib/password-validator";
 
 export function RegisterForm() {
   const router = useRouter();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -30,6 +32,13 @@ export function RegisterForm() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    const trimmedFirst = firstName.trim();
+    const trimmedLast = lastName.trim();
+    if (!trimmedFirst || !trimmedLast) {
+      setError("First and last name are required.");
+      return;
+    }
 
     const pwError = firstPasswordError(password, email);
     if (pwError) {
@@ -43,7 +52,7 @@ export function RegisterForm() {
 
     setSubmitting(true);
     try {
-      await registerUser(email, password);
+      await registerUser(email, password, trimmedFirst, trimmedLast);
       router.push(`/verify-email?email=${encodeURIComponent(email)}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -71,6 +80,36 @@ export function RegisterForm() {
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-5 px-7 pt-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="first-name">First name</Label>
+              <Input
+                id="first-name"
+                type="text"
+                autoComplete="given-name"
+                maxLength={100}
+                required
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Jane"
+                className="h-11 px-4"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="last-name">Last name</Label>
+              <Input
+                id="last-name"
+                type="text"
+                autoComplete="family-name"
+                maxLength={100}
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Doe"
+                className="h-11 px-4"
+              />
+            </div>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input

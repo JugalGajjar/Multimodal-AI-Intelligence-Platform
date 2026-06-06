@@ -40,14 +40,17 @@ function DashboardInner() {
         </p>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Welcome back
-          {user?.email ? (
-            <>
-              ,{" "}
-              <span className="text-gradient-brand">
-                {user.email.split("@")[0]}
-              </span>
-            </>
-          ) : null}
+          {(() => {
+            const display =
+              user?.firstName?.trim() ||
+              (user?.email ? user.email.split("@")[0] : null);
+            return display ? (
+              <>
+                ,{" "}
+                <span className="text-gradient-brand">{display}</span>
+              </>
+            ) : null;
+          })()}
         </h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
           Upload anything readable: PDFs, images, audio, text. Then chat over

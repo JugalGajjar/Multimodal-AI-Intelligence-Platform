@@ -27,7 +27,12 @@ def test_register_creates_user(http):
 
     r = http.post(
         "/auth/register",
-        json={"email": email, "password": STRONG_PASSWORD},
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     )
 
     assert r.status_code == 201
@@ -43,11 +48,24 @@ def test_register_creates_user(http):
 
 def test_register_rejects_duplicate_email(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
 
     r = http.post(
         "/auth/register",
-        json={"email": email, "password": STRONG_PASSWORD},
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     )
 
     assert r.status_code == 409
@@ -56,7 +74,12 @@ def test_register_rejects_duplicate_email(http):
 def test_register_rejects_short_password(http):
     r = http.post(
         "/auth/register",
-        json={"email": unique_email(), "password": "short"},
+        json={
+            "email": unique_email(),
+            "password": "short",
+            "first_name": "Test",
+            "last_name": "User",
+        },
     )
 
     assert r.status_code == 422
@@ -66,7 +89,12 @@ def test_register_rejects_weak_password(http):
     # All-lowercase, missing classes — should fail the validator.
     r = http.post(
         "/auth/register",
-        json={"email": unique_email(), "password": "abcdefghij"},
+        json={
+            "email": unique_email(),
+            "password": "abcdefghij",
+            "first_name": "Test",
+            "last_name": "User",
+        },
     )
     assert r.status_code == 422
 
@@ -85,7 +113,12 @@ def test_register_rejects_disposable_domain(http):
 def test_register_rejects_bad_email(http):
     r = http.post(
         "/auth/register",
-        json={"email": "not-an-email", "password": STRONG_PASSWORD},
+        json={
+            "email": "not-an-email",
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     )
 
     assert r.status_code == 422
@@ -93,20 +126,52 @@ def test_register_rejects_bad_email(http):
 
 def test_login_rejects_unverified(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
 
     # Without the verify step the account stays is_verified=false → 403.
-    r = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD})
+    r = http.post(
+        "/auth/login",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
 
     assert r.status_code == 403
 
 
 def test_login_returns_bearer_token(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
     mark_user_verified(email)
 
-    r = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD})
+    r = http.post(
+        "/auth/login",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
 
     assert r.status_code == 200
     body = r.json()
@@ -117,10 +182,21 @@ def test_login_returns_bearer_token(http):
 
 def test_login_rejects_wrong_password(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
     mark_user_verified(email)
 
-    r = http.post("/auth/login", json={"email": email, "password": "WRONGPASS"})
+    r = http.post(
+        "/auth/login",
+        json={"email": email, "password": "WRONGPASS", "first_name": "Test", "last_name": "User"},
+    )
 
     assert r.status_code == 401
 
@@ -128,7 +204,12 @@ def test_login_rejects_wrong_password(http):
 def test_login_rejects_unknown_email(http):
     r = http.post(
         "/auth/login",
-        json={"email": unique_email(), "password": STRONG_PASSWORD},
+        json={
+            "email": unique_email(),
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
     )
 
     assert r.status_code == 401
@@ -136,9 +217,25 @@ def test_login_rejects_unknown_email(http):
 
 def test_me_returns_current_user(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
     mark_user_verified(email)
-    login = http.post("/auth/login", json={"email": email, "password": STRONG_PASSWORD}).json()
+    login = http.post(
+        "/auth/login",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    ).json()
     token = login["access_token"]
 
     r = http.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -195,7 +292,15 @@ def test_resend_verification_returns_generic_message(http):
 
 def test_verify_email_rejects_bad_code(http):
     email = unique_email()
-    http.post("/auth/register", json={"email": email, "password": STRONG_PASSWORD})
+    http.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": STRONG_PASSWORD,
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
 
     r = http.post(
         "/auth/verify-email",

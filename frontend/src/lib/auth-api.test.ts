@@ -46,7 +46,7 @@ describe("auth-api", () => {
       ),
     );
 
-    const resp = await registerUser("a@b.com", "StrongP@ss1");
+    const resp = await registerUser("a@b.com", "StrongP@ss1", "Jane", "Doe");
 
     expect(resp.email).toBe("a@b.com");
     expect(resp.verification_sent).toBe(true);
@@ -56,6 +56,8 @@ describe("auth-api", () => {
     expect(JSON.parse(init.body as string)).toEqual({
       email: "a@b.com",
       password: "StrongP@ss1",
+      first_name: "Jane",
+      last_name: "Doe",
     });
   });
 

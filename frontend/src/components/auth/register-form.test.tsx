@@ -12,6 +12,11 @@ import { RegisterForm } from "./register-form";
 
 const STRONG = "StrongP@ss1";
 
+async function fillName() {
+  await userEvent.type(screen.getByLabelText(/first name/i), "Jane");
+  await userEvent.type(screen.getByLabelText(/last name/i), "Doe");
+}
+
 describe("<RegisterForm />", () => {
   const fetchMock = vi.fn();
 
@@ -28,6 +33,7 @@ describe("<RegisterForm />", () => {
   it("rejects a weak password before calling the API", async () => {
     render(<RegisterForm />);
 
+    await fillName();
     await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
     await userEvent.type(screen.getByLabelText("Password"), "abcdefgh");
     await userEvent.type(
@@ -45,6 +51,7 @@ describe("<RegisterForm />", () => {
   it("validates that passwords match before calling the API", async () => {
     render(<RegisterForm />);
 
+    await fillName();
     await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
     await userEvent.type(screen.getByLabelText("Password"), STRONG);
     await userEvent.type(
@@ -77,6 +84,7 @@ describe("<RegisterForm />", () => {
     );
 
     render(<RegisterForm />);
+    await fillName();
     await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
     await userEvent.type(screen.getByLabelText("Password"), STRONG);
     await userEvent.type(screen.getByLabelText(/confirm password/i), STRONG);
@@ -88,6 +96,17 @@ describe("<RegisterForm />", () => {
       expect(pushMock).toHaveBeenCalledWith("/verify-email?email=a%40b.com"),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Body shape includes the new fields
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
+    expect(body).toEqual({
+      email: "a@b.com",
+      password: STRONG,
+      first_name: "Jane",
+      last_name: "Doe",
+    });
   });
 
   it("shows duplicate email message on 409", async () => {
@@ -99,6 +118,7 @@ describe("<RegisterForm />", () => {
     );
 
     render(<RegisterForm />);
+    await fillName();
     await userEvent.type(screen.getByLabelText("Email"), "a@b.com");
     await userEvent.type(screen.getByLabelText("Password"), STRONG);
     await userEvent.type(screen.getByLabelText(/confirm password/i), STRONG);
@@ -123,6 +143,7 @@ describe("<RegisterForm />", () => {
     );
 
     render(<RegisterForm />);
+    await fillName();
     await userEvent.type(screen.getByLabelText("Email"), "a@mailinator.com");
     await userEvent.type(screen.getByLabelText("Password"), STRONG);
     await userEvent.type(screen.getByLabelText(/confirm password/i), STRONG);

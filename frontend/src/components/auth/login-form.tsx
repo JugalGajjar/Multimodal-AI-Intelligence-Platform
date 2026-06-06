@@ -37,7 +37,13 @@ export function LoginForm() {
       const { access_token } = await loginUser(email, password);
       const user = await fetchCurrentUser(access_token);
       setSession(
-        { id: user.id, email: user.email, isVerified: user.is_verified },
+        {
+          id: user.id,
+          email: user.email,
+          isVerified: user.is_verified,
+          firstName: user.first_name,
+          lastName: user.last_name,
+        },
         access_token,
       );
       router.push("/dashboard");
