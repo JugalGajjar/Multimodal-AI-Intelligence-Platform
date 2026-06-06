@@ -150,9 +150,9 @@ export function FullGraphView() {
         )}
       </header>
 
-      <div className="grid w-full gap-6 lg:grid-cols-[1fr_260px]">
+      <div className="grid w-full gap-4 sm:gap-6 lg:grid-cols-[1fr_260px]">
         <Card className="glass overflow-hidden py-4">
-          <CardHeader className="px-5 pb-2">
+          <CardHeader className="px-4 pb-2 sm:px-5">
             <div className="space-y-2.5">
               <Label
                 htmlFor="kg-search"
@@ -176,7 +176,7 @@ export function FullGraphView() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="px-5 pb-3">
+          <CardContent className="px-4 pb-3 sm:px-5">
             {query.isLoading && (
               <p
                 className="py-10 text-center text-sm text-muted-foreground"
@@ -197,13 +197,14 @@ export function FullGraphView() {
               <EmptyGraphState />
             )}
             {data && data.nodes.length > 0 && (
-              <KnowledgeGraph
-                nodes={filtered.nodes}
-                links={filtered.links}
-                height={400}
-                highlighted={searchHighlighted}
-                onNodeClick={(node) => setSelectedId(node.id)}
-              />
+              <div className="h-[50svh] min-h-[280px] sm:h-[55svh] lg:h-[60svh]">
+                <KnowledgeGraph
+                  nodes={filtered.nodes}
+                  links={filtered.links}
+                  highlighted={searchHighlighted}
+                  onNodeClick={(node) => setSelectedId(node.id)}
+                />
+              </div>
             )}
           </CardContent>
         </Card>
@@ -218,7 +219,7 @@ export function FullGraphView() {
             />
           ) : (
             <Card className="glass h-full py-4">
-              <CardHeader className="px-5">
+              <CardHeader className="px-4 sm:px-5">
                 <CardTitle className="text-sm">Entity details</CardTitle>
                 <CardDescription className="mt-1 text-xs">
                   Click a node to see its description and relationships.

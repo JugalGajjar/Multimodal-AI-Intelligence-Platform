@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { colorForEntityType, ENTITY_TYPE_LEGEND } from "./entity-colors";
@@ -70,14 +70,33 @@ type ForceGraphMethods = {
 export function KnowledgeGraph({
   nodes,
   links,
-  width,
-  height = 360,
+  width: widthProp,
+  height: heightProp,
   highlighted,
   onNodeClick,
   showLegend = true,
 }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods | null>(null);
+  // Measured container size, so the canvas fills its parent — no fixed pixels.
+  // Falls back to props (or sensible defaults) before the first measurement.
+  const [size, setSize] = useState<{ w: number; h: number }>({
+    w: widthProp ?? 600,
+    h: heightProp ?? 360,
+  });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setSize({ w: width, h: height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const graphData = useMemo(() => {
     const enrichedNodes: ForceNode[] = nodes.map((n) => ({
@@ -110,8 +129,7 @@ export function KnowledgeGraph({
     <div className="flex w-full flex-col gap-2" data-testid="knowledge-graph">
       <div
         ref={containerRef}
-        className="overflow-hidden rounded-md border bg-background"
-        style={{ height }}
+        className="h-full min-h-[240px] w-full overflow-hidden rounded-md border bg-background"
       >
         <ForceGraph2D
           // next/dynamic erases the precise ref type; the runtime instance
@@ -119,8 +137,8 @@ export function KnowledgeGraph({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           ref={fgRef as any}
           graphData={graphData}
-          width={width}
-          height={height}
+          width={size.w}
+          height={size.h}
           backgroundColor="transparent"
           // Once the force simulation settles, fit the bbox into the viewport
           // so the centroid lands at the center and the whole graph is visible.

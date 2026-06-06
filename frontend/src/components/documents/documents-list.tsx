@@ -129,7 +129,7 @@ export function DocumentsList() {
 
   return (
     <Card className="glass w-full py-6">
-      <CardHeader className="px-6 pb-2">
+      <CardHeader className="px-4 pb-2 sm:px-6">
         <CardTitle className="flex items-center gap-2 text-base">
           <Files className="size-4 text-[color:var(--brand)]" aria-hidden="true" />
           Your documents
@@ -140,7 +140,7 @@ export function DocumentsList() {
             : "Loading…"}
         </CardDescription>
       </CardHeader>
-      <CardContent className="px-6 pt-2">
+      <CardContent className="px-4 pt-2 sm:px-6">
         {isLoading && (
           <ul className="space-y-3" data-testid="documents-skeleton">
             {[0, 1, 2].map((i) => (
@@ -192,42 +192,44 @@ export function DocumentsList() {
               return (
                 <li
                   key={doc.id}
-                  className="rounded-xl border border-border/60 bg-background/40 p-4 transition-colors hover:bg-background/70"
+                  className="rounded-xl border border-border/60 bg-background/40 p-3 transition-colors hover:bg-background/70 sm:p-4"
                 >
-                  <div className="flex items-start gap-4">
-                    <span
-                      aria-hidden="true"
-                      className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/60 text-[color:var(--brand)]"
-                    >
-                      <Icon className="size-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-medium">
-                          {doc.filename}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+                    <div className="flex min-w-0 items-start gap-3 sm:flex-1 sm:gap-4">
+                      <span
+                        aria-hidden="true"
+                        className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/60 text-[color:var(--brand)]"
+                      >
+                        <Icon className="size-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="min-w-0 truncate text-sm font-medium">
+                            {doc.filename}
+                          </p>
+                          <Badge
+                            variant={STATUS_VARIANT[doc.status]}
+                            className={
+                              doc.status === "processed"
+                                ? "bg-gradient-brand text-brand-foreground"
+                                : ""
+                            }
+                          >
+                            {doc.status}
+                          </Badge>
+                        </div>
+                        <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                          {formatBytes(doc.size_bytes)} · {doc.content_type}
+                          {doc.status === "processed" && (
+                            <>
+                              {" · "}
+                              <ChunkCount id={doc.id} />
+                            </>
+                          )}
                         </p>
-                        <Badge
-                          variant={STATUS_VARIANT[doc.status]}
-                          className={
-                            doc.status === "processed"
-                              ? "bg-gradient-brand text-brand-foreground"
-                              : ""
-                          }
-                        >
-                          {doc.status}
-                        </Badge>
                       </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {formatBytes(doc.size_bytes)} · {doc.content_type}
-                        {doc.status === "processed" && (
-                          <>
-                            {" · "}
-                            <ChunkCount id={doc.id} />
-                          </>
-                        )}
-                      </p>
                     </div>
-                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                    <div className="-ml-1 flex flex-wrap items-center gap-1 sm:ml-auto sm:shrink-0 sm:flex-nowrap">
                       <Button
                         variant="ghost"
                         size="sm"

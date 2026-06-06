@@ -122,7 +122,7 @@ export function ChatPanel() {
 
   return (
     <Card className="glass w-full py-6">
-      <CardHeader className="px-6 pb-2">
+      <CardHeader className="px-4 pb-2 sm:px-6">
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageSquareText
             className="size-4 text-[color:var(--brand)]"
@@ -135,7 +135,7 @@ export function ChatPanel() {
           audio. Answers stream as the model thinks.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5 px-6 pt-2">
+      <CardContent className="space-y-5 px-4 pt-2 sm:px-6">
         <form onSubmit={onSubmit} className="space-y-2.5">
           <Label
             htmlFor="chat-query"
@@ -150,13 +150,14 @@ export function ChatPanel() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="What does the document say about…?"
               rows={3}
-              className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3.5 pr-36 text-sm leading-relaxed shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30"
+              className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3.5 pr-14 text-sm leading-relaxed shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30 sm:pr-36"
               required
             />
             <Button
               type="submit"
               disabled={pending || !query.trim()}
-              className="absolute bottom-3 right-3 bg-gradient-brand text-brand-foreground glow-brand px-4"
+              aria-label={pending ? "Thinking" : "Send"}
+              className="absolute bottom-3 right-3 bg-gradient-brand text-brand-foreground glow-brand px-3 sm:px-4"
               size="sm"
             >
               {pending ? (
@@ -165,12 +166,12 @@ export function ChatPanel() {
                     className="size-3.5 animate-spin"
                     aria-hidden="true"
                   />
-                  Thinking…
+                  <span className="hidden sm:inline">Thinking…</span>
                 </>
               ) : (
                 <>
                   <SendHorizontal className="size-3.5" aria-hidden="true" />
-                  Send
+                  <span className="hidden sm:inline">Send</span>
                 </>
               )}
             </Button>
@@ -275,7 +276,7 @@ function Answer({
         )}
       </div>
 
-      <div className="rounded-xl border border-border/60 bg-background/50 px-5 py-4 text-sm leading-relaxed">
+      <div className="rounded-xl border border-border/60 bg-background/50 px-4 py-4 text-sm leading-relaxed break-words sm:px-5">
         <p className="whitespace-pre-wrap" data-testid="chat-answer-text">
           {response.answer}
           {streaming && (
@@ -322,11 +323,10 @@ function Answer({
               <ArrowUpRight className="size-3" aria-hidden="true" />
             </Link>
           </div>
-          <div className="overflow-hidden rounded-xl border border-border/60 bg-background/30">
+          <div className="h-[40svh] min-h-[260px] overflow-hidden rounded-xl border border-border/60 bg-background/30 sm:h-[45svh]">
             <KnowledgeGraph
               nodes={graphData.nodes}
               links={graphData.links}
-              height={300}
               highlighted={highlighted}
             />
           </div>
