@@ -128,8 +128,8 @@ export function DocumentsList() {
   });
 
   return (
-    <Card className="glass w-full py-6">
-      <CardHeader className="px-4 pb-2 sm:px-6">
+    <Card className="glass flex h-full min-h-0 w-full flex-col py-6">
+      <CardHeader className="shrink-0 px-4 pb-2 sm:px-6">
         <CardTitle className="flex items-center gap-2 text-base">
           <Files className="size-4 text-[color:var(--brand)]" aria-hidden="true" />
           Your documents
@@ -140,7 +140,7 @@ export function DocumentsList() {
             : "Loading…"}
         </CardDescription>
       </CardHeader>
-      <CardContent className="px-4 pt-2 sm:px-6">
+      <CardContent className="flex min-h-0 flex-1 flex-col px-4 pt-2 sm:px-6">
         {isLoading && (
           <ul className="space-y-3" data-testid="documents-skeleton">
             {[0, 1, 2].map((i) => (
@@ -183,7 +183,7 @@ export function DocumentsList() {
         )}
         {data && data.items.length > 0 && (
           <ul
-            className="max-h-[400px] space-y-3 overflow-y-auto pr-1"
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
             data-testid="documents-scroll"
           >
             {data.items.map((doc) => {

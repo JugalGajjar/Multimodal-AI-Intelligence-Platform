@@ -9,8 +9,8 @@ export default function DocumentsPage() {
   return (
     <AuthGate>
       <AppShell>
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-          <header className="flex flex-col gap-2">
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6">
+          <header className="flex shrink-0 flex-col gap-2">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Workspace
             </p>
@@ -23,9 +23,13 @@ export default function DocumentsPage() {
             </p>
           </header>
 
-          <div className="flex flex-col gap-6">
-            <DocumentUploader compact />
-            <DocumentsList />
+          <div className="flex min-h-0 flex-1 flex-col gap-6">
+            <div className="shrink-0">
+              <DocumentUploader compact />
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <DocumentsList />
+            </div>
           </div>
         </div>
       </AppShell>

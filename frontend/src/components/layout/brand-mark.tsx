@@ -15,8 +15,12 @@ export function BrandMark({
   href?: string;
   className?: string;
 }) {
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const target = href ?? (isAuthenticated ? "/dashboard" : "/");
+  // Persisted state only includes `token`, not `isAuthenticated` — so on a
+  // fresh page load `isAuthenticated` is false until something explicitly
+  // calls setSession. Derive auth from token instead so the logo routes
+  // correctly across reloads.
+  const token = useAuthStore((s) => s.token);
+  const target = href ?? (token ? "/dashboard" : "/");
 
   const dim = size === "lg" ? "size-9" : size === "sm" ? "size-6" : "size-8";
   const textSz = size === "lg" ? "text-lg" : size === "sm" ? "text-xs" : "text-sm";

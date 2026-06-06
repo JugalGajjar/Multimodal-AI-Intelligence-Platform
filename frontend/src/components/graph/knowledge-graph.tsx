@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { colorForEntityType, ENTITY_TYPE_LEGEND } from "./entity-colors";
@@ -78,16 +78,29 @@ export function KnowledgeGraph({
 }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods | null>(null);
-  // Measured container size, so the canvas fills its parent — no fixed pixels.
-  // Falls back to props (or sensible defaults) before the first measurement.
+  // Measured container size — the canvas fills its parent. Start at zero
+  // so the first paint doesn't show a 600x360 canvas inside a smaller
+  // container, then snap to real dimensions via useLayoutEffect (synchronous,
+  // before paint) and keep tracking with ResizeObserver. In environments
+  // without a layout engine (e.g., happy-dom tests), fall back to a
+  // non-zero default so the canvas still renders.
   const [size, setSize] = useState<{ w: number; h: number }>({
-    w: widthProp ?? 600,
-    h: heightProp ?? 360,
+    w: widthProp ?? 0,
+    h: heightProp ?? 0,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!el) return;
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    if (w > 0 && h > 0) {
+      setSize({ w, h });
+    } else {
+      // No real layout — render at a sensible default rather than 0x0.
+      setSize({ w: widthProp ?? 600, h: heightProp ?? 360 });
+    }
+    if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
@@ -96,7 +109,7 @@ export function KnowledgeGraph({
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [widthProp, heightProp]);
 
   const graphData = useMemo(() => {
     const enrichedNodes: ForceNode[] = nodes.map((n) => ({
@@ -115,7 +128,7 @@ export function KnowledgeGraph({
     return (
       <div
         data-testid="kg-empty"
-        className="flex h-40 w-full items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground"
+        className="flex h-full min-h-[160px] w-full items-center justify-center rounded-md border border-dashed p-6 text-center text-xs text-muted-foreground"
       >
         No entities to graph yet. Upload a document to populate the
         knowledge graph.
@@ -126,19 +139,23 @@ export function KnowledgeGraph({
   const usedTypes = new Set(nodes.map((n) => n.type));
 
   return (
-    <div className="flex w-full flex-col gap-2" data-testid="knowledge-graph">
+    <div
+      className="flex h-full min-h-0 w-full flex-col gap-2"
+      data-testid="knowledge-graph"
+    >
       <div
         ref={containerRef}
-        className="h-full min-h-[240px] w-full overflow-hidden rounded-md border bg-background"
+        className="min-h-0 flex-1 overflow-hidden rounded-md border bg-background"
       >
-        <ForceGraph2D
-          // next/dynamic erases the precise ref type; the runtime instance
-          // does expose zoomToFit. Cast through `any` once and move on.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ref={fgRef as any}
-          graphData={graphData}
-          width={size.w}
-          height={size.h}
+        {size.w > 0 && size.h > 0 && (
+          <ForceGraph2D
+            // next/dynamic erases the precise ref type; the runtime instance
+            // does expose zoomToFit. Cast through `any` once and move on.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ref={fgRef as any}
+            graphData={graphData}
+            width={size.w}
+            height={size.h}
           backgroundColor="transparent"
           // Once the force simulation settles, fit the bbox into the viewport
           // so the centroid lands at the center and the whole graph is visible.
@@ -260,8 +277,9 @@ export function KnowledgeGraph({
               document_ids: (n as unknown as ForceNode).document_ids,
             })
           }
-          cooldownTicks={120}
-        />
+            cooldownTicks={120}
+          />
+        )}
       </div>
 
       {showLegend && (

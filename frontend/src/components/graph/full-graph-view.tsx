@@ -111,7 +111,10 @@ export function FullGraphView() {
   }, [data, search]);
 
   return (
-    <div className="flex flex-col gap-4" data-testid="full-graph-view">
+    <div
+      className="flex h-full min-h-0 flex-col gap-4"
+      data-testid="full-graph-view"
+    >
       <header className="flex flex-col gap-1.5">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Knowledge
@@ -150,8 +153,8 @@ export function FullGraphView() {
         )}
       </header>
 
-      <div className="grid w-full gap-4 sm:gap-6 lg:grid-cols-[1fr_260px]">
-        <Card className="glass overflow-hidden py-4">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4 sm:gap-6 lg:grid lg:grid-cols-[1fr_260px]">
+        <Card className="glass flex min-h-0 flex-1 flex-col overflow-hidden py-4">
           <CardHeader className="px-4 pb-2 sm:px-5">
             <div className="space-y-2.5">
               <Label
@@ -176,7 +179,7 @@ export function FullGraphView() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="px-4 pb-3 sm:px-5">
+          <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-3 sm:px-5">
             {query.isLoading && (
               <p
                 className="py-10 text-center text-sm text-muted-foreground"
@@ -197,7 +200,7 @@ export function FullGraphView() {
               <EmptyGraphState />
             )}
             {data && data.nodes.length > 0 && (
-              <div className="h-[50svh] min-h-[280px] sm:h-[55svh] lg:h-[60svh]">
+              <div className="min-h-[280px] flex-1">
                 <KnowledgeGraph
                   nodes={filtered.nodes}
                   links={filtered.links}
@@ -209,7 +212,7 @@ export function FullGraphView() {
           </CardContent>
         </Card>
 
-        <aside data-testid="kg-side-panel">
+        <aside className="min-h-0 shrink-0 lg:overflow-y-auto" data-testid="kg-side-panel">
           {selectedNode ? (
             <SelectedNodePanel
               node={selectedNode}
