@@ -53,13 +53,13 @@ function errorMessage(err: unknown): string {
     if (err.status === 502)
       return "The model provider returned an error. Try again or pick a different model.";
     if (err.status === 503)
-      return "Chat is not configured — the OpenRouter API key is missing.";
+      return "Chat is not configured. The OpenRouter API key is missing.";
     return `Request failed (${err.status}).`;
   }
   if (err && typeof err === "object" && "status" in err && "detail" in err) {
     const { status: s, detail } = err as { status: number; detail: string };
     if (s === 429) return "Free-tier rate limit hit. Wait a few seconds and retry.";
-    if (s === 503) return "Chat is not configured — the model provider key is missing.";
+    if (s === 503) return "Chat is not configured. The model provider key is missing.";
     return `Request failed (${s}): ${detail}`;
   }
   return "Network error. Try again.";
@@ -186,7 +186,7 @@ export function ChatPanel() {
           </p>
         )}
 
-        {/* Initial empty state — no query yet */}
+        {/* Initial empty state, no query yet */}
         {stream.status === "idle" && !response && (
           <div
             className="rounded-xl border border-dashed border-border/70 bg-background/30 px-5 py-6 text-center"
@@ -197,7 +197,7 @@ export function ChatPanel() {
               aria-hidden="true"
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              Ask anything about your documents — answers stream with citations
+              Ask anything about your documents. Answers stream with citations
               and a live entity graph when relevant.
             </p>
           </div>

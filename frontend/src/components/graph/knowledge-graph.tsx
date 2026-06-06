@@ -93,7 +93,7 @@ export function KnowledgeGraph({
         data-testid="kg-empty"
         className="flex h-40 w-full items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground"
       >
-        No entities to graph yet — upload a document to populate the
+        No entities to graph yet. Upload a document to populate the
         knowledge graph.
       </div>
     );
@@ -116,7 +116,7 @@ export function KnowledgeGraph({
           nodeLabel={(n) => {
             const node = n as unknown as ForceNode;
             return node.description
-              ? `${node.name} — ${node.description}`
+              ? `${node.name}: ${node.description}`
               : node.name;
           }}
           // `replace` mode skips force-graph's default circle so our paint wins.

@@ -1,20 +1,29 @@
+"use client";
+
 import Link from "next/link";
+
+import { useAuthStore } from "@/store/auth";
 
 export function BrandMark({
   size = "md",
-  href = "/",
+  href,
   className = "",
 }: {
   size?: "sm" | "md" | "lg";
+  /** Override target. When omitted, routes to /dashboard if the user is
+   *  signed in and `/` otherwise. */
   href?: string;
   className?: string;
 }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const target = href ?? (isAuthenticated ? "/dashboard" : "/");
+
   const dim = size === "lg" ? "size-9" : size === "sm" ? "size-6" : "size-8";
   const textSz = size === "lg" ? "text-lg" : size === "sm" ? "text-xs" : "text-sm";
 
   return (
     <Link
-      href={href}
+      href={target}
       className={`inline-flex items-center gap-2 ${className}`}
       data-testid="brand-mark"
     >

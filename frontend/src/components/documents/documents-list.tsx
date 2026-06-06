@@ -164,13 +164,16 @@ export function DocumentsList() {
             <div className="space-y-1">
               <p className="text-sm font-medium">No documents yet</p>
               <p className="text-xs text-muted-foreground">
-                Drop a file in the panel above — PDFs, images, audio, or text.
+                Drop a file in the panel above. PDFs, images, audio, or text.
               </p>
             </div>
           </div>
         )}
         {data && data.items.length > 0 && (
-          <ul className="space-y-3">
+          <ul
+            className="max-h-[260px] space-y-3 overflow-y-auto pr-1"
+            data-testid="documents-scroll"
+          >
             {data.items.map((doc) => {
               const Icon = iconForMime(doc.content_type);
               const isOpen = openId === doc.id;

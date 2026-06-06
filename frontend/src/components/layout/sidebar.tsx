@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Network, Sparkles } from "lucide-react";
+import { Files, LayoutDashboard, Network, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -19,6 +19,12 @@ const NAV: NavItem[] = [
     label: "Dashboard",
     Icon: LayoutDashboard,
     match: (p) => p === "/dashboard",
+  },
+  {
+    href: "/dashboard/documents",
+    label: "Your documents",
+    Icon: Files,
+    match: (p) => p.startsWith("/dashboard/documents"),
   },
   {
     href: "/dashboard/graph",

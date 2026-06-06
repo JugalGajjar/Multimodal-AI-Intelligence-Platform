@@ -1,10 +1,14 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
+import { Upload } from "lucide-react";
+import Link from "next/link";
+
 import { AuthGate } from "@/components/auth-gate";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { DocumentUploader } from "@/components/documents/document-uploader";
-import { DocumentsList } from "@/components/documents/documents-list";
 import { AppShell } from "@/components/layout/app-shell";
+import { listDocuments } from "@/lib/documents-api";
 import { useAuthStore } from "@/store/auth";
 
 export default function DashboardPage() {
@@ -19,6 +23,14 @@ export default function DashboardPage() {
 
 function DashboardInner() {
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+
+  const { data: docs } = useQuery({
+    queryKey: ["documents"],
+    queryFn: () => listDocuments(token!),
+    enabled: !!token,
+  });
+  const noDocsYet = docs?.total === 0;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-10">
@@ -38,15 +50,34 @@ function DashboardInner() {
           ) : null}
         </h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Upload anything readable — PDFs, images, audio, text — then chat over
+          Upload anything readable: PDFs, images, audio, text. Then chat over
           it with citations and a live knowledge graph.
         </p>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <DocumentUploader />
-        <DocumentsList />
-      </div>
+      {noDocsYet && (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-[color:var(--brand)]/30 bg-[color:var(--brand)]/5 px-4 py-3 text-sm"
+          data-testid="no-documents-nudge"
+        >
+          <Upload
+            className="mt-0.5 size-4 shrink-0 text-[color:var(--brand)]"
+            aria-hidden="true"
+          />
+          <p>
+            You haven&rsquo;t uploaded anything yet. Drop a file below or open{" "}
+            <Link
+              href="/dashboard/documents"
+              className="font-medium underline underline-offset-4"
+            >
+              Your documents
+            </Link>{" "}
+            to manage uploads.
+          </p>
+        </div>
+      )}
+
+      <DocumentUploader compact />
 
       <ChatPanel />
     </div>

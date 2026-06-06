@@ -121,7 +121,7 @@ export function FullGraphView() {
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Every entity and relationship the platform extracted from your
-          uploads — searchable, navigable, and tied back to source documents.
+          uploads. Searchable, navigable, and tied back to source documents.
         </p>
 
         {data && (
@@ -246,7 +246,7 @@ function EmptyGraphState() {
         <Network className="size-6" />
       </span>
       <p className="max-w-sm text-sm text-muted-foreground">
-        No entities yet — upload a document and the platform will extract them
+        No entities yet. Upload a document and the platform will extract them
         automatically. You can also click{" "}
         <span className="font-medium text-foreground">Re-index graph</span> on
         a processed document to retry extraction.

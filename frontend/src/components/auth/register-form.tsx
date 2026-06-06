@@ -95,7 +95,7 @@ export function RegisterForm() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="8–32 characters"
+              placeholder="8 to 32 characters"
               className="h-11 px-4"
             />
             <PasswordStrength password={password} email={email} className="pt-1" />

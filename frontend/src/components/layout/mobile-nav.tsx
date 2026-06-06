@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Network, X } from "lucide-react";
+import { Files, LayoutDashboard, Network, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
@@ -9,6 +9,7 @@ import { BrandMark } from "@/components/layout/brand-mark";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
+  { href: "/dashboard/documents", label: "Your documents", Icon: Files },
   { href: "/dashboard/graph", label: "Knowledge graph", Icon: Network },
 ];
 

@@ -19,7 +19,13 @@ import { useAuthStore } from "@/store/auth";
 const ACCEPTED =
   "application/pdf,image/png,image/jpeg,image/webp,audio/mpeg,audio/mp3,audio/wav,text/plain,text/markdown";
 
-export function DocumentUploader() {
+export function DocumentUploader({
+  compact = false,
+}: {
+  /** When true, renders a slimmer card for in-context placement (e.g. the
+   *  dashboard, where the full uploader would dominate the page). */
+  compact?: boolean;
+}) {
   const token = useAuthStore((s) => s.token);
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -63,8 +69,11 @@ export function DocumentUploader() {
   }
 
   return (
-    <Card className="glass w-full py-6" data-testid="document-uploader">
-      <CardHeader className="px-6 pb-2">
+    <Card
+      className={"glass w-full " + (compact ? "py-4" : "py-6")}
+      data-testid="document-uploader"
+    >
+      <CardHeader className={"pb-2 " + (compact ? "px-5" : "px-6")}>
         <CardTitle className="flex items-center gap-2 text-base">
           <UploadCloud className="size-4 text-[color:var(--brand)]" aria-hidden="true" />
           Upload a document
@@ -73,7 +82,11 @@ export function DocumentUploader() {
           PDF, image, audio, or text. 50 MB max.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5 px-6 pt-2">
+      <CardContent
+        className={
+          "pt-2 " + (compact ? "space-y-3 px-5" : "space-y-5 px-6")
+        }
+      >
         <label
           htmlFor="file"
           onDragOver={(e) => {
@@ -83,7 +96,8 @@ export function DocumentUploader() {
           onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
           className={
-            "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors " +
+            "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed text-center transition-colors " +
+            (compact ? "px-5 py-6 " : "px-6 py-12 ") +
             (dragOver
               ? "border-[color:var(--brand)] bg-accent/40"
               : "border-border/70 hover:border-[color:var(--brand)] hover:bg-accent/30")
@@ -91,9 +105,12 @@ export function DocumentUploader() {
         >
           <span
             aria-hidden="true"
-            className="grid size-11 place-items-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
+            className={
+              "grid place-items-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand " +
+              (compact ? "size-9" : "size-11")
+            }
           >
-            <CloudUpload className="size-5" />
+            <CloudUpload className={compact ? "size-4" : "size-5"} />
           </span>
           {file ? (
             <span className="text-sm">
