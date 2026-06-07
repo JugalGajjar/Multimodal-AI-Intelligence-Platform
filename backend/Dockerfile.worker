@@ -33,6 +33,14 @@ RUN pip install -e ".[dev]" \
         && pip install pytesseract pdf2image Pillow numpy)) \
     && rm -rf /usr/local/lib/python3.12/site-packages/app
 
+# Pre-bake the embedding model into the image so the first job doesn't pay
+# the Hugging Face round-trip — and so CI doesn't fail when HF rate-limits
+# the runner's IP with a 429. Mirrors what Dockerfile.worker.prod does.
+ENV HF_HOME=/app/.cache/huggingface \
+    XDG_CACHE_HOME=/app/.cache
+RUN mkdir -p /app/.cache/huggingface \
+    && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
+
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./alembic.ini
