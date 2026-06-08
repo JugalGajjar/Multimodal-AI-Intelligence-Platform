@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // Next.js adds <div role="alert" id="__next-route-announcer__"> on every page,
 // which makes getByRole("alert") ambiguous. Match visible error text directly.
@@ -7,6 +7,13 @@ const STRONG = "StrongP@ss1";
 
 function uniqueEmail(): string {
   return `e2e-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
+}
+
+// Register requires first/last name as of the name-on-registration change;
+// the form's HTML5 `required` blocks submission if either is empty.
+async function fillNameFields(page: Page): Promise<void> {
+  await page.getByLabel(/first name/i).fill("E2E");
+  await page.getByLabel(/last name/i).fill("User");
 }
 
 test.describe("auth: register → verify → dashboard → login", () => {
@@ -26,6 +33,7 @@ test.describe("auth: register → verify → dashboard → login", () => {
     const email = uniqueEmail();
 
     await page.goto("/register");
+    await fillNameFields(page);
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(STRONG);
     await page.getByLabel(/confirm password/i).fill(STRONG);
@@ -77,6 +85,7 @@ test.describe("auth: register → verify → dashboard → login", () => {
     const email = uniqueEmail();
 
     await page.goto("/register");
+    await fillNameFields(page);
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(STRONG);
     await page.getByLabel(/confirm password/i).fill(STRONG);
@@ -84,6 +93,7 @@ test.describe("auth: register → verify → dashboard → login", () => {
     await page.waitForURL(/\/verify-email/);
 
     await page.goto("/register");
+    await fillNameFields(page);
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(STRONG);
     await page.getByLabel(/confirm password/i).fill(STRONG);
@@ -100,6 +110,7 @@ test.describe("auth: register → verify → dashboard → login", () => {
 
     // Register a real user — they stay unverified.
     await page.goto("/register");
+    await fillNameFields(page);
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(STRONG);
     await page.getByLabel(/confirm password/i).fill(STRONG);
@@ -124,6 +135,7 @@ test.describe("auth: register → verify → dashboard → login", () => {
     });
 
     await page.goto("/register");
+    await fillNameFields(page);
     await page.getByLabel("Email").fill(uniqueEmail());
     await page.getByLabel("Password", { exact: true }).fill("abcdefgh");
     await page.getByLabel(/confirm password/i).fill("abcdefgh");
@@ -143,6 +155,7 @@ test.describe("auth: register → verify → dashboard → login", () => {
     });
 
     await page.goto("/register");
+    await fillNameFields(page);
     await page.getByLabel("Email").fill(uniqueEmail());
     await page.getByLabel("Password", { exact: true }).fill(STRONG);
     await page.getByLabel(/confirm password/i).fill(`${STRONG}x`);

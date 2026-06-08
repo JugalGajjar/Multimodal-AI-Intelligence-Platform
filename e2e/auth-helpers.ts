@@ -18,7 +18,12 @@ export async function registerAndSignIn(
   const email = uniqueEmail(prefix);
 
   const reg = await page.request.post(`${API}/auth/register`, {
-    data: { email, password: STRONG_PASSWORD },
+    data: {
+      email,
+      password: STRONG_PASSWORD,
+      first_name: "E2E",
+      last_name: "User",
+    },
   });
   if (!reg.ok()) {
     throw new Error(`/register failed: ${reg.status()} ${await reg.text()}`);
