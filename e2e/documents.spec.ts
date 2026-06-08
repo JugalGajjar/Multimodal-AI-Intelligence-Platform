@@ -46,8 +46,13 @@ test.describe("document upload", () => {
       });
     await page.getByRole("button", { name: /^upload$/i }).click();
 
-    // Appears in list
-    await expect(page.getByText("phase21.pdf")).toBeVisible({ timeout: 10_000 });
+    // Appears in list. Scope to the docs list — the Sonner upload-success
+    // toast also renders the filename, which would otherwise make this match
+    // two elements and fail strict-mode.
+    const docsList = page.getByTestId("documents-scroll");
+    await expect(docsList.getByText("phase21.pdf")).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByText(/1 document\b/i)).toBeVisible();
 
     // Delete
@@ -83,9 +88,9 @@ test.describe("document upload", () => {
       buffer: TINY_PDF,
     });
     await pageA.getByRole("button", { name: /^upload$/i }).click();
-    await expect(pageA.getByText("secret-A.pdf")).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(
+      pageA.getByTestId("documents-scroll").getByText("secret-A.pdf"),
+    ).toBeVisible({ timeout: 10_000 });
 
     // User B in a fresh context shouldn't see User A's doc
     const ctxB = await browser.newContext();
