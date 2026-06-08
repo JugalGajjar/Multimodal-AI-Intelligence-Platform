@@ -21,7 +21,12 @@ const TINY_PDF = Buffer.from(
 );
 
 async function setup(page: import("@playwright/test").Page) {
-  return registerAndSignIn(page, "docs");
+  const email = await registerAndSignIn(page, "docs");
+  // The full DocumentsList (status badges, chunk counts, empty state) lives
+  // on /dashboard/documents. The dashboard itself only has the compact
+  // uploader and the chat panel.
+  await page.goto("/dashboard/documents");
+  return email;
 }
 
 test.describe("document upload", () => {

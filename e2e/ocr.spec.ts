@@ -4,6 +4,9 @@ import { registerAndSignIn } from "./auth-helpers";
 
 async function setup(page: import("@playwright/test").Page) {
   await registerAndSignIn(page, "ocr");
+  // Status badge + "View text" button live on the documents page, not the
+  // dashboard.
+  await page.goto("/dashboard/documents");
 }
 
 test.describe("OCR pipeline (worker)", () => {

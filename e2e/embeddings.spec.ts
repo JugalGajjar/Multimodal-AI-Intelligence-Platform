@@ -4,6 +4,8 @@ import { registerAndSignIn } from "./auth-helpers";
 
 async function setup(page: import("@playwright/test").Page) {
   await registerAndSignIn(page, "emb");
+  // Status badge + chunk count live on the documents page, not the dashboard.
+  await page.goto("/dashboard/documents");
 }
 
 test.describe("embeddings + chunk count", () => {
