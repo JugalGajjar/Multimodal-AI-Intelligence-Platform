@@ -26,14 +26,24 @@ jobs:
       - name: Compose up (dev stack)
         run: |
           cp .env.example .env
-          # We don't bring up jaeger; force OTEL off so backend/worker don't
-          # spend startup spinning on a missing OTLP collector.
           sed -i 's/^OTEL_ENABLED=.*/OTEL_ENABLED=false/' .env
           # Tests register many users from the same runner IP — rate limit
           # would 429 the suite after a handful of attempts.
           sed -i 's/^RATE_LIMIT_ENABLED=.*/RATE_LIMIT_ENABLED=false/' .env
-          # traefik is needed by test_infra.py (dashboard + host-header routes).
-          docker compose up -d postgres redis qdrant neo4j minio minio-init backend worker traefik
+          # Pull base images with retries — Docker Hub on GitHub-hosted
+          # runners occasionally times out reaching registry-1.docker.io.
+          for attempt in 1 2 3; do
+            if docker compose pull --quiet; then
+              break
+            fi
+            if [ "$attempt" = "3" ]; then
+              echo "::error::docker compose pull failed after 3 attempts"
+              exit 1
+            fi
+            echo "pull failed (attempt $attempt/3); retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          docker compose up -d
 
       - name: Wait for stack to be healthy
         run: |
