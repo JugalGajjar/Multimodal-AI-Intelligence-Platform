@@ -9,7 +9,7 @@ const FEATURES = [
   {
     Icon: FileText,
     title: "Multimodal ingest",
-    body: "PDFs, images, audio, and text. All extracted, chunked, and embedded into a shared vector space.",
+    body: "PDFs, images, audio, video, and text. All extracted, chunked, and embedded into a shared vector space.",
   },
   {
     Icon: ImageIcon,
@@ -52,8 +52,8 @@ export default function Home() {
             <span className="text-gradient-brand">you’ve ever uploaded.</span>
           </h1>
           <p className="max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Multimodal RAG over text, images, PDFs, and audio, with a live
-            knowledge graph and grounded, cited answers.
+            Multimodal RAG over text, images, PDFs, audio, and video, with a
+            live knowledge graph and grounded, cited answers.
           </p>
 
           <div className="mt-4 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">

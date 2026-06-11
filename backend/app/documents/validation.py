@@ -21,7 +21,7 @@ ALLOWED_MIME_TYPES: frozenset[str] = frozenset(
     }
 )
 
-MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50 MiB
+MAX_FILE_SIZE_BYTES: int = 100 * 1024 * 1024  # 100 MiB
 
 # Strip everything except letters, digits, `.`, `-`, `_`. Collapse repeats.
 _FILENAME_BLOCK = re.compile(r"[^A-Za-z0-9._-]+")

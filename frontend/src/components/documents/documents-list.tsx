@@ -178,7 +178,8 @@ export function DocumentsList() {
             <div className="space-y-1">
               <p className="text-sm font-medium">No documents yet</p>
               <p className="text-xs text-muted-foreground">
-                Drop a file in the panel above. PDFs, images, audio, or text.
+                Drop a file in the panel above. PDFs, images, audio, video,
+                or text.
               </p>
             </div>
           </div>

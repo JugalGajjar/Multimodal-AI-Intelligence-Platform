@@ -53,8 +53,8 @@ function DashboardInner() {
           })()}
         </h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Upload anything readable: PDFs, images, audio, text. Then chat over
-          it with citations and a live knowledge graph.
+          Upload anything readable: PDFs, images, audio, video, text. Then
+          chat over it with citations and a live knowledge graph.
         </p>
       </header>
 

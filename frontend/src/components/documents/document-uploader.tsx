@@ -53,7 +53,7 @@ export function DocumentUploader({
       if (err instanceof ApiError && err.status === 415) {
         setError("Unsupported file type.");
       } else if (err instanceof ApiError && err.status === 413) {
-        setError("File is too large (50 MB max).");
+        setError("File is too large (100 MB max).");
       } else if (err instanceof ApiError && err.status === 400) {
         setError("File is empty.");
       } else {
@@ -126,7 +126,7 @@ export function DocumentUploader({
               <span className="min-w-0 flex-1 text-sm">
                 <span className="font-medium">Drop a file or click</span>{" "}
                 <span className="hidden text-xs text-muted-foreground sm:inline">
-                  (PDF, image, audio, text. 50 MB max.)
+                  (PDF, image, audio, video, text. 100 MB max.)
                 </span>
               </span>
             )}
@@ -174,7 +174,7 @@ export function DocumentUploader({
           Upload a document
         </CardTitle>
         <CardDescription className="mt-1">
-          PDF, image, audio, or text. 50 MB max.
+          PDF, image, audio, video, or text. 100 MB max.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5 px-4 pt-2 sm:px-6">

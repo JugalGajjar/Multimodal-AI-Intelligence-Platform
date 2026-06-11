@@ -131,8 +131,8 @@ export function ChatPanel() {
           Ask your documents
         </CardTitle>
         <CardDescription className="mt-1">
-          Retrieval-augmented chat over your uploaded text, PDFs, images, and
-          audio. Answers stream as the model thinks.
+          Retrieval-augmented chat over your uploaded text, PDFs, images,
+          audio, and video. Answers stream as the model thinks.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5 px-4 pt-2 sm:px-6">

@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     # Hard duration cap enforced after the upload reaches the worker
     # (cv2 lives in the worker image, not the API). Guards against Groq
     # Whisper's 25 MB upload ceiling and against arq/HF Space timeouts.
-    # The 50 MiB upload cap is a coarser upstream filter.
+    # The 100 MiB upload cap is a coarser upstream filter.
     video_max_duration_sec: int = 300
     # OpenRouter `include_reasoning` flag — surfaces CoT in the response at
     # the cost of extra output tokens. Off by default; the worker only uses

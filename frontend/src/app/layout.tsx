@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Multimodal AI Intelligence Platform",
   description:
-    "Multimodal RAG over text, images, PDFs, and audio, with knowledge graphs and agentic reasoning.",
+    "Multimodal RAG over text, images, PDFs, audio, and video, with knowledge graphs and agentic reasoning.",
 };
 
 export default function RootLayout({
