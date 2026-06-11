@@ -6,17 +6,18 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 
-Retrieval-augmented chat over text, PDFs, images, and audio, with a live knowledge graph extracted from your uploads and grounded, cited answers.
+Retrieval-augmented chat over text, PDFs, images, audio, and video, with a live knowledge graph extracted from your uploads and grounded, cited answers.
 
 Live at **[projectmmap.com](https://projectmmap.com)**.
 
 ## What it does
 
-Upload anything readable. The platform extracts the text (OCR for images, Whisper for audio, native parse for PDFs and text), chunks and embeds it, indexes the chunks in a vector store, pulls entities and relationships into a knowledge graph, and then lets you chat over everything with citations back to the source chunks.
+Upload anything readable. The platform extracts the text (OCR for images, Whisper for audio, frame sampling plus transcription for video, native parse for PDFs and text), chunks and embeds it, indexes the chunks in a vector store, pulls entities and relationships into a knowledge graph, and then lets you chat over everything with citations back to the source chunks.
 
-- **Multimodal ingest.** PDFs, images, audio, plain text, markdown. One shared vector space.
+- **Multimodal ingest.** PDFs, images, audio, video, plain text, markdown. One shared vector space. 100 MB upload cap.
 - **Vision plus OCR.** RapidOCR plus a vision-language model give every image a searchable, summarized representation.
 - **Audio transcription.** Groq Whisper turns recordings into citable, retrievable text.
+- **Video understanding.** Adaptive frame sampling (cv2) plus audio extraction (ffmpeg) feed a single fused Nemotron VL call with the Whisper transcript embedded as document context — the model cross-references what's said against what's shown. 5-minute cap.
 - **Knowledge graph.** Entities and relationships extracted per document, visualized client-side, and used to ground answers.
 - **Cited chat.** Streaming answers with chunk-level citations and a per-answer subgraph highlighting the entities the model used.
 - **Verification.** Each answer is checked against retrieved context and flags unsupported claims.
@@ -44,6 +45,7 @@ Upload anything readable. The platform extracts the text (OCR for images, Whispe
       |               | R2 / MinIO         |
       | OCR, ASR,     +--------------------+
       | vision,
+      | video frames,
       | embedding,
       | summarize,
       | graph extract
@@ -65,7 +67,7 @@ The API stays light. All heavy lifting (OCR, ASR, embedding, vision, graph extra
 
 **Data plane.** Postgres for users and document metadata, Qdrant for vector search, Neo4j for the entity graph, Redis for the job queue and rate limiting, S3-compatible object storage (Cloudflare R2 in prod, MinIO in dev) for raw uploads.
 
-**Models.** OpenRouter for vision (NVIDIA Nemotron Nano 2 VL) and reasoning (DeepSeek). Groq for audio transcription (Whisper Large v3 Turbo) and entity extraction (Llama 3.3 70B).
+**Models.** OpenRouter for vision and video (NVIDIA Nemotron Nano 2 VL) and reasoning (DeepSeek). Groq for audio transcription (Whisper Large v3 Turbo) and entity extraction (Llama 3.3 70B).
 
 **Tests.** pytest (backend unit and integration), vitest plus Testing Library (frontend), Playwright (end-to-end), with a nightly workflow that spins up the full docker compose stack.
 
@@ -120,7 +122,7 @@ All configuration is driven by environment variables. See [`.env.example`](.env.
 | `DATABASE_URL` | Optional. Overrides the per-field Postgres settings for managed providers (Neon, Supabase). |
 | `QDRANT_URL` / `QDRANT_API_KEY` | Qdrant Cloud credentials. Falls back to in-cluster Qdrant. |
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j connection. AuraDB instances use a non-`neo4j` username. |
-| `OPENROUTER_API_KEY` | Required for vision and reasoning. |
+| `OPENROUTER_API_KEY` | Required for vision, video, and reasoning. |
 | `GROQ_API_KEY` | Required for audio transcription and entity extraction. |
 | `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | Transactional email. When unset, registration returns the verification code in the response (dev only). |
 | `RATE_LIMIT_ENABLED` | Per-IP limits on `/auth/*`. Disable in test suites. |
@@ -190,8 +192,9 @@ backend/                FastAPI app, arq worker, Alembic migrations
     rag/                retrieval, prompts, OpenRouter and Groq clients
     storage/            Qdrant client, R2/MinIO client
     transcription/      Groq Whisper client
+    video/              fused-RAG video description (Nemotron VL)
     vision/             vision-language model client
-    workers/            arq job definitions
+    workers/            arq job definitions (incl. video frame sampling + audio extraction)
   alembic/              database migrations
   evals/                offline eval harness
   tests/                unit + integration suites
