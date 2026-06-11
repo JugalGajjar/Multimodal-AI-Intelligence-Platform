@@ -23,6 +23,7 @@ class DocumentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     summary: DocumentSummary | None = None
+    error_message: str | None = None
 
 
 class DocumentListResponse(BaseModel):

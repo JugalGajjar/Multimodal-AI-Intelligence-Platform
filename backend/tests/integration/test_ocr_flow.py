@@ -146,6 +146,8 @@ def test_audio_upload_with_invalid_bytes_marks_failed(http, auth):
     status = wait_for_status(http, auth, upload["id"])
 
     assert status == "failed"
-    text = http.get(f"/documents/{upload['id']}/text", headers=auth).json()
-    assert text["extracted_text"] is not None
-    assert "pipeline error" in text["extracted_text"].lower()
+    # error_message is on the main doc response (not /text) so the UI can
+    # surface a reason without pulling the full extracted-text payload.
+    doc = http.get(f"/documents/{upload['id']}", headers=auth).json()
+    assert doc["error_message"] is not None
+    assert doc["error_message"] != ""

@@ -41,6 +41,11 @@ class Document(Base):
     )
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Set by the worker on the FAILED path so the UI can surface *why* a
+    # document failed (e.g. "Video must be under 5 minutes"). Null on
+    # success and on legacy FAILED rows from before this column existed.
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Populated by the summarization agent; null when no summary has been
     # generated or stored yet.
     summary_tldr: Mapped[str | None] = mapped_column(Text, nullable=True)

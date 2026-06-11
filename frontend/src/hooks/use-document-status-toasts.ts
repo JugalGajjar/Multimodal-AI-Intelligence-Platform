@@ -70,7 +70,9 @@ export function useDocumentStatusToasts() {
         });
       } else if (doc.status === "failed") {
         toast.error(doc.filename, {
-          description: "Processing failed. Try re-uploading or check the format.",
+          description:
+            doc.error_message ||
+            "Processing failed. Try re-uploading or check the format.",
           duration: TOAST_DURATION_MS,
         });
       }

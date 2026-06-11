@@ -90,7 +90,7 @@ async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
             failed_doc = await db.get(Document, document_id)
             if failed_doc is not None:
                 failed_doc.status = DocumentStatus.FAILED
-                failed_doc.extracted_text = f"Pipeline error: {exc}"
+                failed_doc.error_message = str(exc)
                 await db.commit()
             return "failed"
 

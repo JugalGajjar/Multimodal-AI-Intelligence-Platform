@@ -100,8 +100,10 @@ async def test_failure_in_embedding_marks_doc_as_failed_with_no_orphan_chunks():
 
         refreshed = await _read_doc(doc.id)
         assert refreshed.status == DocumentStatus.FAILED
-        assert refreshed.extracted_text is not None
-        assert "Pipeline error" in refreshed.extracted_text
+        # extracted_text stays clean — the failure reason lives on its own
+        # column so the UI can surface it without polluting RAG text.
+        assert refreshed.error_message is not None
+        assert "simulated embedding failure" in refreshed.error_message
 
         # CRITICAL: no orphan chunks should remain in Postgres. They were
         # db.add()'d before embed_texts raised; the except branch must

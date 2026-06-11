@@ -229,6 +229,11 @@ export function DocumentsList() {
                             </>
                           )}
                         </p>
+                        {doc.status === "failed" && doc.error_message && (
+                          <p className="mt-1 break-words text-xs text-destructive">
+                            {doc.error_message}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="-ml-1 flex flex-wrap items-center gap-1 sm:ml-auto sm:shrink-0 sm:flex-nowrap">

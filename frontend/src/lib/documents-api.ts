@@ -21,6 +21,7 @@ export type DocumentItem = {
   created_at: string;
   updated_at: string;
   summary?: DocumentSummary | null;
+  error_message?: string | null;
 };
 
 export type DocumentListResponse = {
