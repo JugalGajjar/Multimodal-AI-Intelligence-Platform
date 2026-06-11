@@ -138,8 +138,7 @@ async def _extract_from_video(
             max_minutes = settings.video_max_duration_sec // 60
             got_minutes = duration / 60
             raise ValueError(
-                f"Video must be under {max_minutes} minutes "
-                f"(got {got_minutes:.1f} minutes)."
+                f"Video must be under {max_minutes} minutes (got {got_minutes:.1f} minutes)."
             )
 
         frames, audio_bytes = await asyncio.gather(
