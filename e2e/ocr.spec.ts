@@ -36,12 +36,16 @@ test.describe("OCR pipeline (worker)", () => {
     const viewBtn = page.getByRole("button", { name: /view text/i });
     await viewBtn.click();
 
-    // Extracted text shows up
-    await expect(page.getByText(content)).toBeVisible({ timeout: 5_000 });
+    // Extracted text shows up. Scope to the text viewer — the auto-generated
+    // summary TLDR can echo the same sentence elsewhere in the row.
+    const textViewer = page.getByTestId("document-text");
+    await expect(textViewer.getByText(content)).toBeVisible({
+      timeout: 5_000,
+    });
 
     // Hide it again
     await page.getByRole("button", { name: /hide text/i }).click();
-    await expect(page.getByText(content)).toBeHidden();
+    await expect(textViewer).toBeHidden();
   });
 
   test("status badge polls and updates without page reload", async ({ page }) => {

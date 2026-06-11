@@ -479,7 +479,10 @@ function DocumentText({ id }: { id: string }) {
   });
 
   return (
-    <div className="mt-3 rounded-lg border border-border/60 bg-muted/40 p-3">
+    <div
+      className="mt-3 rounded-lg border border-border/60 bg-muted/40 p-3"
+      data-testid="document-text"
+    >
       {isLoading && (
         <p className="text-xs text-muted-foreground">Loading text…</p>
       )}
