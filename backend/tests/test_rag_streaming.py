@@ -57,8 +57,10 @@ def test_sse_formats_event_and_json_payload():
 
 
 class _StubUser:
-    def __init__(self):
+    def __init__(self, rag_mode: str = "strict", web_max_results: int = 5):
         self.id = uuid4()
+        self.rag_mode = rag_mode
+        self.web_max_results = web_max_results
 
 
 @pytest.mark.asyncio
@@ -168,7 +170,7 @@ async def test_stream_runs_verification_against_full_concatenated_answer():
         for t in ["A ", "B ", "C."]:
             yield t
 
-    async def fake_verify(*, answer, chunks, graph_facts):
+    async def fake_verify(*, answer, chunks, graph_facts, web_results=None):
         captured["answer"] = answer
         return VerificationResult(verdict="verified", groundedness_score=1.0)
 
@@ -226,3 +228,159 @@ async def test_stream_meta_carries_intent_and_graph_flags():
 
     meta = events[0][1]
     assert meta["intent"] == "summarize"
+
+
+# ---------------------------------------------------------------------------
+# Web citations + strict-mode signals
+# ---------------------------------------------------------------------------
+
+
+def _web_result(content: str = "fresh fact"):
+    from app.rag.tavily import WebResult
+
+    return WebResult(title="Page", url="https://w.com", content=content, score=0.9)
+
+
+@pytest.mark.asyncio
+async def test_stream_meta_carries_web_and_strict_fields():
+    user = _StubUser(rag_mode="strict")
+    state = {
+        "query": "q",
+        "user_id": user.id,
+        "intent": "chat",
+        "chunks": [],
+        "graph_facts": [],
+        "web_results": [_web_result()],
+        "used_context": False,
+        "used_graph": False,
+        "used_web": True,
+    }
+
+    async def fake_stream(**kwargs):
+        yield "hi"
+
+    with (
+        patch.object(rag_router, "prepare_context_state", new=AsyncMock(return_value=state)),
+        patch.object(rag_router, "stream_chat_completion", new=fake_stream),
+        patch.object(
+            rag_router,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="verified", groundedness_score=1.0)
+            ),
+        ),
+    ):
+        payload = ChatRequest(query="q", use_web=True)
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user)))  # type: ignore[arg-type]
+
+    meta = events[0][1]
+    assert meta["used_web"] is True
+    assert meta["strict"] is True
+    assert len(meta["web_citations"]) == 1
+    assert meta["web_citations"][0]["url"] == "https://w.com"
+
+    done = events[-1][1]
+    assert done["strict_refusal"] is None
+
+
+@pytest.mark.asyncio
+async def test_stream_meta_strict_false_when_regular_or_rag_off():
+    state = {
+        "query": "q",
+        "user_id": uuid4(),
+        "intent": "chat",
+        "chunks": [],
+        "graph_facts": [],
+        "used_context": False,
+        "used_graph": False,
+    }
+
+    async def fake_stream(**kwargs):
+        yield "hi"
+
+    for user, payload in [
+        (_StubUser(rag_mode="regular"), ChatRequest(query="q")),
+        (_StubUser(rag_mode="strict"), ChatRequest(query="q", use_rag=False)),
+    ]:
+        with (
+            patch.object(rag_router, "prepare_context_state", new=AsyncMock(return_value=state)),
+            patch.object(rag_router, "stream_chat_completion", new=fake_stream),
+            patch.object(
+                rag_router,
+                "verify_answer",
+                new=AsyncMock(
+                    return_value=VerificationResult(verdict="skipped", groundedness_score=0.0)
+                ),
+            ),
+        ):
+            events = _parse_sse(
+                await _drain(rag_router._stream_generator(payload, user))  # type: ignore[arg-type]
+            )
+        assert events[0][1]["strict"] is False
+
+
+@pytest.mark.asyncio
+async def test_stream_done_carries_refusal_when_strict_gate_fires():
+    user = _StubUser(rag_mode="strict")
+    state = {
+        "query": "q",
+        "user_id": user.id,
+        "intent": "chat",
+        "chunks": [_chunk()],
+        "graph_facts": [],
+        "used_context": True,
+        "used_graph": False,
+    }
+
+    async def fake_stream(**kwargs):
+        yield "low quality answer"
+
+    low = VerificationResult(verdict="unsupported", groundedness_score=0.2)
+    with (
+        patch.object(rag_router, "prepare_context_state", new=AsyncMock(return_value=state)),
+        patch.object(rag_router, "stream_chat_completion", new=fake_stream),
+        patch.object(rag_router, "verify_answer", new=AsyncMock(return_value=low)),
+    ):
+        payload = ChatRequest(query="q")
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user)))  # type: ignore[arg-type]
+
+    done = events[-1][1]
+    assert done["strict_refusal"] is not None
+    assert "strict mode" in done["strict_refusal"]
+    assert done["verification"]["groundedness_score"] == 0.2
+
+
+@pytest.mark.asyncio
+async def test_stream_verify_receives_web_results():
+    user = _StubUser()
+    captured: dict = {}
+
+    async def fake_verify(*, answer, chunks, graph_facts, web_results=None):
+        captured["web_results"] = web_results
+        return VerificationResult(verdict="verified", groundedness_score=1.0)
+
+    web = [_web_result("evidence")]
+    state = {
+        "query": "q",
+        "user_id": user.id,
+        "intent": "chat",
+        "chunks": [],
+        "graph_facts": [],
+        "web_results": web,
+        "used_context": False,
+        "used_graph": False,
+        "used_web": True,
+    }
+
+    async def fake_stream(**kwargs):
+        yield "x"
+
+    with (
+        patch.object(rag_router, "prepare_context_state", new=AsyncMock(return_value=state)),
+        patch.object(rag_router, "stream_chat_completion", new=fake_stream),
+        patch.object(rag_router, "verify_answer", new=fake_verify),
+    ):
+        payload = ChatRequest(query="q", use_web=True)
+        await _drain(rag_router._stream_generator(payload, user))  # type: ignore[arg-type]
+
+    assert captured["web_results"] == web

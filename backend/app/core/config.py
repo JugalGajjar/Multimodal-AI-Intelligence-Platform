@@ -92,6 +92,17 @@ class Settings(BaseSettings):
     # OCR text; llama-3.3-70b handles structured output cleanly.
     groq_extraction_model: str = "llama-3.3-70b-versatile"
 
+    # Tavily web search — powers the chat "Use Web" toggle. Best-effort:
+    # transient failures degrade to no web context, but a missing key with
+    # the toggle on is a hard 503 at the router.
+    tavily_api_key: str = ""
+    tavily_timeout_sec: float = 15.0
+
+    # Strict-mode grounding gate: answers scoring below this are replaced
+    # with a refusal. Separate from verification_threshold_verified (0.85),
+    # which only colors the badge.
+    strict_groundedness_threshold: float = 0.80
+
     # Transactional email (Resend). When unset, /register skips the email
     # but still creates the user — useful for local dev without a key.
     resend_api_key: str = ""

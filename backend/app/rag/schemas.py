@@ -7,6 +7,15 @@ class ChatRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     top_k: int = Field(default=5, ge=1, le=20)
     document_ids: list[UUID] | None = None
+    use_rag: bool = True
+    use_web: bool = False
+
+
+class WebCitation(BaseModel):
+    url: str
+    title: str = ""
+    snippet: str = ""
+    score: float = 0.0
 
 
 class Citation(BaseModel):
@@ -52,6 +61,10 @@ class ChatResponse(BaseModel):
     model: str
     used_context: bool
     used_graph: bool = False
+    used_web: bool = False
+    web_citations: list[WebCitation] = []
     verification: VerificationInfo = Field(default_factory=VerificationInfo)
+    # True when strict mode replaced the answer with a refusal.
+    strict_refusal: bool = False
     # Which workflow branch the intent router chose for this turn.
     intent: str = "chat"

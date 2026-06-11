@@ -54,6 +54,15 @@ async def test_run_chat_returns_answer_chunks_and_facts():
         patch.object(wf, "retrieve", return_value=chunks),
         patch.object(wf, "_safe_expand", new=AsyncMock(return_value=facts)),
         patch.object(wf, "chat_completion", new=AsyncMock(return_value="42")),
+        # Without this patch the real verifier runs (live Groq when .env has
+        # a key) and the strict gate would legitimately refuse "42".
+        patch.object(
+            wf,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="verified", groundedness_score=1.0)
+            ),
+        ),
     ):
         state = await wf.run_chat(query="what is qdrant?", user_id=uuid4())
 
@@ -184,7 +193,7 @@ async def test_workflow_runs_verify_node_after_respond():
     chunks = [_chunk("Qdrant is a vector DB")]
     captured: dict = {}
 
-    async def fake_verify(*, answer, chunks, graph_facts):
+    async def fake_verify(*, answer, chunks, graph_facts, web_results=None):
         captured["answer"] = answer
         captured["chunks"] = chunks
         return VerificationResult(
@@ -306,3 +315,203 @@ async def test_classifier_failure_falls_back_to_chat_branch():
         pytest.raises(RuntimeError),
     ):
         await wf.run_chat(query="hi", user_id=uuid4())
+
+
+# ---------------------------------------------------------------------------
+# RAG toggle, web search, strict gate
+# ---------------------------------------------------------------------------
+
+
+def _web_result(content: str = "fresh web fact"):
+    from app.rag.tavily import WebResult
+
+    return WebResult(title="W", url="https://w.com", content=content, score=0.9)
+
+
+_VERIFIED = VerificationResult(verdict="verified", groundedness_score=1.0)
+
+
+@pytest.mark.asyncio
+async def test_rag_off_skips_classifier_and_retrieval():
+    captured: dict = {}
+
+    async def fake_chat(*, messages, **kwargs):
+        captured["system"] = messages[0]["content"]
+        return "from my own knowledge"
+
+    with (
+        patch.object(wf, "classify_intent", new=AsyncMock(return_value="chat")) as classify_spy,
+        patch.object(wf, "retrieve") as retrieve_spy,
+        patch.object(wf, "chat_completion", new=fake_chat),
+        patch.object(wf, "verify_answer", new=AsyncMock(return_value=_VERIFIED)),
+    ):
+        state = await wf.run_chat(query="hi", user_id=uuid4(), use_rag=False)
+
+    from app.rag.prompts import PURE_KNOWLEDGE_SYSTEM
+
+    classify_spy.assert_not_awaited()
+    retrieve_spy.assert_not_called()
+    assert state["intent"] == "chat"
+    assert state["chunks"] == []
+    assert state["used_context"] is False
+    assert captured["system"] == PURE_KNOWLEDGE_SYSTEM
+
+
+@pytest.mark.asyncio
+async def test_rag_off_web_on_uses_web_only_prompt_and_user_max():
+    captured: dict = {}
+
+    async def fake_chat(*, messages, **kwargs):
+        captured["system"] = messages[0]["content"]
+        captured["user"] = messages[1]["content"]
+        return "web answer"
+
+    with (
+        patch.object(wf, "retrieve") as retrieve_spy,
+        patch.object(
+            wf, "search_web", new=AsyncMock(return_value=[_web_result("nemotron rocks")])
+        ) as web_spy,
+        patch.object(wf, "chat_completion", new=fake_chat),
+        patch.object(wf, "verify_answer", new=AsyncMock(return_value=_VERIFIED)),
+    ):
+        state = await wf.run_chat(
+            query="latest news?",
+            user_id=uuid4(),
+            use_rag=False,
+            use_web=True,
+            web_max_results=7,
+        )
+
+    from app.rag.prompts import WEB_ONLY_SYSTEM
+
+    retrieve_spy.assert_not_called()
+    web_spy.assert_awaited_once_with(query="latest news?", max_results=7)
+    assert state["used_web"] is True
+    assert captured["system"] == WEB_ONLY_SYSTEM
+    assert "nemotron rocks" in captured["user"]
+    assert "[W1]" in captured["user"]
+
+
+@pytest.mark.asyncio
+async def test_route_after_classify_returns_skip_retrieval_when_rag_off():
+    assert wf._route_after_classify({"use_rag": False}) == "skip_retrieval"
+    assert wf._route_after_classify({"use_rag": False, "intent": "summarize"}) == "skip_retrieval"
+    assert wf._route_after_classify({"use_rag": True, "intent": "chat"}) == "retrieve_for_chat"
+
+
+@pytest.mark.asyncio
+async def test_web_search_failure_is_non_blocking():
+    with (
+        patch.object(wf, "retrieve", return_value=[]),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "search_web", new=AsyncMock(side_effect=RuntimeError("tavily down"))),
+        patch.object(wf, "chat_completion", new=AsyncMock(return_value="still answered")),
+        patch.object(wf, "verify_answer", new=AsyncMock(return_value=_VERIFIED)),
+    ):
+        state = await wf.run_chat(query="q", user_id=uuid4(), use_web=True)
+
+    assert state["answer"] == "still answered"
+    assert state["used_web"] is False
+    assert state["web_results"] == []
+
+
+@pytest.mark.asyncio
+async def test_strict_gate_replaces_low_groundedness_answer():
+    low = VerificationResult(verdict="unsupported", groundedness_score=0.3)
+    with (
+        patch.object(wf, "retrieve", return_value=[_chunk()]),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "chat_completion", new=AsyncMock(return_value="dubious claim")),
+        patch.object(wf, "verify_answer", new=AsyncMock(return_value=low)),
+    ):
+        state = await wf.run_chat(query="q", user_id=uuid4(), rag_mode="strict")
+
+    from app.rag.prompts import STRICT_REFUSAL_MESSAGE
+
+    assert state["answer"] == STRICT_REFUSAL_MESSAGE
+    assert state["strict_refusal"] == STRICT_REFUSAL_MESSAGE
+    # The verification result itself stays honest.
+    assert state["verification"].groundedness_score == 0.3
+
+
+@pytest.mark.asyncio
+async def test_regular_mode_keeps_low_groundedness_answer():
+    low = VerificationResult(verdict="unsupported", groundedness_score=0.3)
+    with (
+        patch.object(wf, "retrieve", return_value=[_chunk()]),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "chat_completion", new=AsyncMock(return_value="hybrid answer")),
+        patch.object(wf, "verify_answer", new=AsyncMock(return_value=low)),
+    ):
+        state = await wf.run_chat(query="q", user_id=uuid4(), rag_mode="regular")
+
+    assert state["answer"] == "hybrid answer"
+    assert state["strict_refusal"] is None
+
+
+@pytest.mark.asyncio
+async def test_regular_mode_with_context_uses_regular_system_prompt():
+    captured: dict = {}
+
+    async def fake_chat(*, messages, **kwargs):
+        captured["system"] = messages[0]["content"]
+        return "ok"
+
+    with (
+        patch.object(wf, "retrieve", return_value=[_chunk()]),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "chat_completion", new=fake_chat),
+        patch.object(wf, "verify_answer", new=AsyncMock(return_value=_VERIFIED)),
+    ):
+        await wf.run_chat(query="q", user_id=uuid4(), rag_mode="regular")
+
+    from app.rag.prompts import REGULAR_MODE_SYSTEM
+
+    assert captured["system"] == REGULAR_MODE_SYSTEM
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_rag", [True, False])
+@pytest.mark.parametrize("use_web", [True, False])
+@pytest.mark.parametrize("intent", ["chat", "summarize", "explain_graph"])
+async def test_prepare_context_state_parity_with_graph(use_rag, use_web, intent):
+    """The streaming path's context must match the graph's pre-respond state
+    for every (intent, use_rag, use_web) combination — drift guard."""
+    chunks = [_chunk("parity")] if intent == "chat" else []
+    web = [_web_result()] if use_web else []
+    summaries = [{"id": "d", "filename": "f.pdf", "tldr": "t", "key_points": []}]
+
+    patches = (
+        patch.object(wf, "classify_intent", new=AsyncMock(return_value=intent)),
+        patch.object(wf, "retrieve", return_value=chunks),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "list_summaries_for_user", new=AsyncMock(return_value=summaries)),
+        patch.object(wf, "search_web", new=AsyncMock(return_value=web)),
+        patch.object(wf, "chat_completion", new=AsyncMock(return_value="a")),
+        patch.object(wf, "verify_answer", new=AsyncMock(return_value=_VERIFIED)),
+    )
+
+    kwargs = dict(query="q", user_id=uuid4(), use_rag=use_rag, use_web=use_web, web_max_results=3)
+
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        full = await wf.run_chat(**kwargs)
+    # Re-create patches (they're single-use context managers).
+    with (
+        patch.object(wf, "classify_intent", new=AsyncMock(return_value=intent)),
+        patch.object(wf, "retrieve", return_value=chunks),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "list_summaries_for_user", new=AsyncMock(return_value=summaries)),
+        patch.object(wf, "search_web", new=AsyncMock(return_value=web)),
+    ):
+        prepared = await wf.prepare_context_state(**kwargs)
+
+    for key in (
+        "intent",
+        "chunks",
+        "graph_facts",
+        "web_results",
+        "used_context",
+        "used_graph",
+        "used_web",
+    ):
+        assert prepared.get(key) == full.get(key), f"{key} drifted for {kwargs}"

@@ -1,9 +1,12 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.auth.passwords import PasswordError, validate_password
+
+RagMode = Literal["strict", "regular"]
 
 
 class UserRegister(BaseModel):
@@ -83,3 +86,15 @@ class ResetPasswordRequest(BaseModel):
 
 class GenericMessage(BaseModel):
     message: str
+
+
+class ChatSettingsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    rag_mode: RagMode
+    web_max_results: int
+
+
+class ChatSettingsUpdate(BaseModel):
+    rag_mode: RagMode | None = None
+    web_max_results: int | None = Field(default=None, ge=1, le=10)

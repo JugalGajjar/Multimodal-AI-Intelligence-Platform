@@ -11,6 +11,8 @@ from app.auth.deps import get_current_user
 from app.auth.lockout import clear_failed_logins, is_locked_out, record_failed_login
 from app.auth.models import User
 from app.auth.schemas import (
+    ChatSettingsResponse,
+    ChatSettingsUpdate,
     ForgotPasswordRequest,
     GenericMessage,
     RegisterResponse,
@@ -240,4 +242,24 @@ async def reset_password(
 
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: CurrentUserDep) -> User:
+    return current_user
+
+
+@router.get("/settings", response_model=ChatSettingsResponse)
+async def get_settings(current_user: CurrentUserDep) -> User:
+    return current_user
+
+
+@router.patch("/settings", response_model=ChatSettingsResponse)
+async def update_settings(
+    payload: ChatSettingsUpdate,
+    current_user: CurrentUserDep,
+    db: DbDep,
+) -> User:
+    if payload.rag_mode is not None:
+        current_user.rag_mode = payload.rag_mode
+    if payload.web_max_results is not None:
+        current_user.web_max_results = payload.web_max_results
+    await db.commit()
+    await db.refresh(current_user)
     return current_user

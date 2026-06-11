@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, String, Uuid
+from sqlalchemy import Boolean, DateTime, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -32,6 +32,14 @@ class User(Base):
     password_reset_code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_reset_code_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+    # Chat preferences (Settings page). rag_mode: "strict" | "regular".
+    rag_mode: Mapped[str] = mapped_column(
+        String(16), default="strict", server_default="strict", nullable=False
+    )
+    web_max_results: Mapped[int] = mapped_column(
+        Integer, default=5, server_default="5", nullable=False
     )
 
     created_at: Mapped[datetime] = mapped_column(

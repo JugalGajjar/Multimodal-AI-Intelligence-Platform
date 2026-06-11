@@ -20,7 +20,9 @@ from typing import Any, Literal
 from app.core.config import settings
 from app.rag.graph_expansion import GraphFact
 from app.rag.groq_chat import GroqChatError, chat_completion
+from app.rag.prompts import STRICT_REFUSAL_MESSAGE
 from app.rag.retrieval import RetrievedChunk
+from app.rag.tavily import WebResult
 
 log = logging.getLogger("mmap.agents.verification")
 
@@ -46,9 +48,9 @@ class VerificationResult:
 
 SYSTEM_PROMPT = (
     "You are a strict fact-checking system. You will be given an answer plus "
-    "the context that was supposed to back it (numbered passages and a list "
-    "of knowledge-graph facts). Decompose the answer into atomic factual "
-    "claims and label each one.\n\n"
+    "the context that was supposed to back it (numbered passages, a list of "
+    "knowledge-graph facts, and possibly numbered web results). Decompose the "
+    "answer into atomic factual claims and label each one.\n\n"
     "Rules:\n"
     "- Each claim must be a single declarative sentence.\n"
     "- Ignore meta-statements ('I will explain…', 'The document mentions…').\n"
@@ -60,7 +62,7 @@ SYSTEM_PROMPT = (
     "{\n"
     '  "claims": [\n'
     '    {"text": "<atomic claim>", "support": "supported|unsupported|uncertain", '
-    '"evidence": "<[N] citation marker or graph entity name, empty if unsupported>"}\n'
+    '"evidence": "<[N] or [W#] citation marker or graph entity name, empty if unsupported>"}\n'
     "  ]\n"
     "}\n"
     'If the answer has no factual claims, return {"claims": []}.'
@@ -83,6 +85,16 @@ def _render_chunks(chunks: list[RetrievedChunk]) -> str:
         parts.append(f"[{i}] {c.text.strip()}")
     joined = "\n\n".join(parts)
     return _truncate(joined, MAX_CONTEXT_CHARS)
+
+
+def _render_web(results: list[WebResult]) -> str:
+    if not results:
+        return "(no web results)"
+    parts: list[str] = []
+    for i, r in enumerate(results, start=1):
+        parts.append(f"[W{i}] {r.title} — {r.url}: {r.content.strip()}")
+    joined = "\n\n".join(parts)
+    return _truncate(joined, MAX_CONTEXT_CHARS // 2)
 
 
 def _render_facts(facts: list[GraphFact]) -> str:
@@ -205,11 +217,17 @@ def _skip(reason: str) -> VerificationResult:
     return VerificationResult(verdict="skipped", groundedness_score=0.0, skip_reason=reason)
 
 
-async def _call_llm(answer: str, chunks: list[RetrievedChunk], facts: list[GraphFact]) -> str:
+async def _call_llm(
+    answer: str,
+    chunks: list[RetrievedChunk],
+    facts: list[GraphFact],
+    web_results: list[WebResult],
+) -> str:
     user_msg = (
         f"Answer to verify:\n{_truncate(answer, MAX_ANSWER_CHARS)}\n\n"
         f"Context passages:\n{_render_chunks(chunks)}\n\n"
-        f"Knowledge-graph facts:\n{_render_facts(facts)}"
+        f"Knowledge-graph facts:\n{_render_facts(facts)}\n\n"
+        f"Web results:\n{_render_web(web_results)}"
     )
     return await chat_completion(
         messages=[
@@ -228,16 +246,18 @@ async def verify_answer(
     answer: str,
     chunks: list[RetrievedChunk],
     graph_facts: list[GraphFact],
+    web_results: list[WebResult] | None = None,
 ) -> VerificationResult:
+    web_results = web_results or []
     if not settings.verification_enabled:
         return _skip("verification disabled")
     if not answer or not answer.strip():
         return _skip("empty answer")
-    if not chunks and not graph_facts:
+    if not chunks and not graph_facts and not web_results:
         return _skip("no context to verify against")
 
     try:
-        raw = await _call_llm(answer, chunks, graph_facts)
+        raw = await _call_llm(answer, chunks, graph_facts, web_results)
     except GroqChatError as exc:
         log.warning("verification upstream failure (%s): %s", exc.status_code, exc.body)
         return _skip(f"upstream {exc.status_code}")
@@ -256,6 +276,27 @@ async def verify_answer(
         supported_claims=supported,
         unsupported_claims=unsupported_texts,
     )
+
+
+def strict_refusal_for(
+    result: VerificationResult,
+    *,
+    rag_mode: str,
+    use_rag: bool,
+) -> str | None:
+    """Return the strict-mode refusal message when the gate should fire.
+
+    Fails open on `skipped` verdicts — a verification outage (or
+    verification_enabled=False) must not turn every strict-mode answer
+    into a refusal. Boundary: score == threshold passes.
+    """
+    if not use_rag or rag_mode != "strict":
+        return None
+    if result.verdict == "skipped":
+        return None
+    if result.groundedness_score < settings.strict_groundedness_threshold:
+        return STRICT_REFUSAL_MESSAGE
+    return None
 
 
 def to_dict(result: VerificationResult) -> dict[str, Any]:

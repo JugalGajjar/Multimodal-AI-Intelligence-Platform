@@ -189,3 +189,65 @@ class TestSystemPrompts:
 
     def test_no_context_prompt_steers_user_to_upload(self):
         assert "upload" in NO_CONTEXT_FALLBACK_SYSTEM.lower()
+
+
+class TestWebBlock:
+    def _web(self, content: str = "body", url: str = "https://w.com", title: str = "Title"):
+        from app.rag.tavily import WebResult
+
+        return WebResult(title=title, url=url, content=content, score=0.7)
+
+    def test_numbers_web_results_with_w_markers(self):
+        from app.rag.prompts import build_web_block
+
+        out = build_web_block([self._web(title="A"), self._web(title="B")])
+        assert "[W1] A" in out
+        assert "[W2] B" in out
+        assert "https://w.com" in out
+
+    def test_truncates_long_content(self):
+        from app.rag.prompts import build_web_block
+
+        out = build_web_block([self._web(content="x" * 2000)])
+        assert "x" * 1000 + "…" in out
+        assert "x" * 1001 not in out
+
+    def test_user_message_with_only_web_results_includes_section(self):
+        from app.rag.prompts import build_user_message
+
+        out = build_user_message("q?", [], web_results=[self._web()])
+        assert "Web results:" in out
+        assert out.endswith("Question: q?")
+
+    def test_user_message_without_anything_returns_raw_query(self):
+        from app.rag.prompts import build_user_message
+
+        assert build_user_message("bare", [], web_results=[]) == "bare"
+
+
+class TestModeSystemPrompts:
+    def test_strict_prompt_mentions_web_markers(self):
+        from app.rag.prompts import SYSTEM_PROMPT
+
+        assert "[W#]" in SYSTEM_PROMPT
+
+    def test_regular_prompt_allows_own_knowledge(self):
+        from app.rag.prompts import REGULAR_MODE_SYSTEM
+
+        assert "own knowledge" in REGULAR_MODE_SYSTEM
+        assert "[N]" in REGULAR_MODE_SYSTEM
+
+    def test_pure_knowledge_prompt_does_not_nag_about_uploads(self):
+        from app.rag.prompts import PURE_KNOWLEDGE_SYSTEM
+
+        assert "upload" not in PURE_KNOWLEDGE_SYSTEM.lower()
+
+    def test_web_only_prompt_mentions_w_markers(self):
+        from app.rag.prompts import WEB_ONLY_SYSTEM
+
+        assert "[W#]" in WEB_ONLY_SYSTEM
+
+    def test_strict_refusal_message_mentions_settings(self):
+        from app.rag.prompts import STRICT_REFUSAL_MESSAGE
+
+        assert "Settings" in STRICT_REFUSAL_MESSAGE

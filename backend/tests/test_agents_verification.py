@@ -281,3 +281,80 @@ def test_to_dict_round_trips_a_typical_result():
     assert out["total_claims"] == 3
     assert out["supported_claims"] == 2
     assert out["unsupported_claims"] == ["bad"]
+
+
+# ---------------------------------------------------------------------------
+# Web-results evidence + strict gate
+# ---------------------------------------------------------------------------
+
+
+def _web(content: str = "web says hi", url: str = "https://x.com") -> "ver.WebResult":
+    from app.rag.tavily import WebResult
+
+    return WebResult(title="Page", url=url, content=content, score=0.8)
+
+
+@pytest.mark.asyncio
+async def test_verify_answer_with_only_web_results_does_not_skip():
+    raw = json.dumps({"claims": []})
+    with patch.object(ver, "_call_llm", new=AsyncMock(return_value=raw)) as fake:
+        result = await verify_answer(
+            answer="something",
+            chunks=[],
+            graph_facts=[],
+            web_results=[_web()],
+        )
+    assert result.verdict != "skipped"
+    fake.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_web_content_reaches_the_verifier_prompt():
+    captured: dict = {}
+
+    async def fake_chat(*, messages, **kwargs):
+        captured["user"] = messages[1]["content"]
+        return json.dumps({"claims": []})
+
+    with patch.object(ver, "chat_completion", new=fake_chat):
+        await verify_answer(
+            answer="something",
+            chunks=[],
+            graph_facts=[],
+            web_results=[_web("quantum widgets shipped in 2026")],
+        )
+
+    assert "quantum widgets shipped in 2026" in captured["user"]
+    assert "[W1]" in captured["user"]
+    assert "https://x.com" in captured["user"]
+
+
+class TestStrictRefusalFor:
+    def _result(self, score: float, verdict: str = "partial") -> VerificationResult:
+        return VerificationResult(verdict=verdict, groundedness_score=score)  # type: ignore[arg-type]
+
+    def test_fires_below_threshold_in_strict_mode(self):
+        out = ver.strict_refusal_for(self._result(0.5), rag_mode="strict", use_rag=True)
+        assert out is not None
+        assert "strict mode" in out
+
+    def test_does_not_fire_in_regular_mode(self):
+        assert ver.strict_refusal_for(self._result(0.1), rag_mode="regular", use_rag=True) is None
+
+    def test_does_not_fire_when_rag_off(self):
+        assert ver.strict_refusal_for(self._result(0.1), rag_mode="strict", use_rag=False) is None
+
+    def test_fails_open_on_skipped_verdict(self):
+        skipped = self._result(0.0, verdict="skipped")
+        assert ver.strict_refusal_for(skipped, rag_mode="strict", use_rag=True) is None
+
+    def test_boundary_score_passes(self):
+        at = self._result(0.80)
+        assert ver.strict_refusal_for(at, rag_mode="strict", use_rag=True) is None
+        below = self._result(0.799)
+        assert ver.strict_refusal_for(below, rag_mode="strict", use_rag=True) is not None
+
+    def test_threshold_is_configurable(self, monkeypatch):
+        monkeypatch.setattr(ver.settings, "strict_groundedness_threshold", 0.95)
+        out = ver.strict_refusal_for(self._result(0.9), rag_mode="strict", use_rag=True)
+        assert out is not None
