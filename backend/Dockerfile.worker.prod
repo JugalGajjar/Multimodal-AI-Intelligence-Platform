@@ -40,7 +40,7 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/app/.cache/huggingface \
     XDG_CACHE_HOME=/app/.cache
 
-# Runtime-only OCR system packages (no build-essential).
+# Runtime-only OCR/video system packages (no build-essential).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         tesseract-ocr \
@@ -48,6 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         poppler-utils \
         libgl1 \
         libglib2.0-0 \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && addgroup --system --gid 1001 app \
     && adduser --system --uid 1001 --ingroup app --no-create-home app

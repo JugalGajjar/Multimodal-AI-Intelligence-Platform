@@ -21,6 +21,7 @@ async def chat_completion(
     temperature: float = 0.2,
     max_tokens: int | None = None,
     timeout: float = 60.0,
+    extra_body: dict | None = None,
 ) -> str:
     if not settings.openrouter_api_key:
         raise OpenRouterError(503, {"detail": "OPENROUTER_API_KEY not configured"})
@@ -32,6 +33,10 @@ async def chat_completion(
     }
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+    if extra_body:
+        # OpenRouter forwards unrecognized top-level keys (e.g. `include_reasoning`)
+        # straight to the upstream model.
+        payload.update(extra_body)
 
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",

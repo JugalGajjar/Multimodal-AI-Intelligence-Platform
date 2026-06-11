@@ -13,6 +13,9 @@ ALLOWED_MIME_TYPES: frozenset[str] = frozenset(
         "audio/wav",
         "audio/x-wav",
         "audio/wave",
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
         "text/plain",
         "text/markdown",
     }

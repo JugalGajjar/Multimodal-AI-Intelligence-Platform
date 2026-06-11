@@ -8,6 +8,7 @@ import {
   FileImage,
   FileText,
   FileType,
+  FileVideo,
   Files,
   RefreshCw,
   ScrollText,
@@ -75,6 +76,7 @@ function pollIntervalMs(items: DocumentItem[] | undefined): number | false {
 function iconForMime(mime: string) {
   if (mime.startsWith("image/")) return FileImage;
   if (mime.startsWith("audio/")) return FileAudio;
+  if (mime.startsWith("video/")) return FileVideo;
   if (mime.includes("pdf")) return FileType;
   return FileText;
 }

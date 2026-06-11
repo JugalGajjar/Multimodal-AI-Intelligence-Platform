@@ -18,7 +18,7 @@ import { uploadDocument } from "@/lib/documents-api";
 import { useAuthStore } from "@/store/auth";
 
 const ACCEPTED =
-  "application/pdf,image/png,image/jpeg,image/webp,audio/mpeg,audio/mp3,audio/wav,text/plain,text/markdown";
+  "application/pdf,image/png,image/jpeg,image/webp,audio/mpeg,audio/mp3,audio/wav,video/mp4,video/webm,video/quicktime,text/plain,text/markdown";
 
 export function DocumentUploader({
   compact = false,

@@ -10,7 +10,8 @@ WORKDIR /app
 # System packages:
 #   tesseract-ocr / -eng — fallback OCR
 #   poppler-utils        — pdf2image rasterization
-#   libgl1, libglib2.0-0 — Paddle/Pillow image deps
+#   libgl1, libglib2.0-0 — Paddle/Pillow/OpenCV image deps
+#   ffmpeg               — video audio-track extraction + opencv decoders
 #   build-essential      — for any wheels that need compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
@@ -20,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         poppler-utils \
         libgl1 \
         libglib2.0-0 \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./

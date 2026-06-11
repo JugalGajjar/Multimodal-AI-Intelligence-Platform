@@ -65,6 +65,25 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_vision_model: str = "qwen/qwen2.5-vl-72b-instruct:free"
     openrouter_reasoning_model: str = "deepseek/deepseek-r1:free"
+    openrouter_video_model: str = "nvidia/nemotron-nano-12b-v2-vl:free"
+
+    # Adaptive frame sampling for video ingest. Frame count is bounded by
+    # `video_frame_budget`; frames are downscaled to `video_target_width`
+    # and JPEG-encoded at `video_jpeg_quality` before being sent. 30 frames
+    # is the chosen prod tradeoff — a touch more coverage at the 60-120s
+    # tier than the prototype's 24 without meaningfully dilating latency.
+    video_frame_budget: int = 30
+    video_target_width: int = 720
+    video_jpeg_quality: int = 85
+    # Hard duration cap enforced after the upload reaches the worker
+    # (cv2 lives in the worker image, not the API). Guards against Groq
+    # Whisper's 25 MB upload ceiling and against arq/HF Space timeouts.
+    # The 50 MiB upload cap is a coarser upstream filter.
+    video_max_duration_sec: int = 300
+    # OpenRouter `include_reasoning` flag — surfaces CoT in the response at
+    # the cost of extra output tokens. Off by default; the worker only uses
+    # `message.content`.
+    video_include_reasoning: bool = False
 
     groq_api_key: str = ""
     groq_whisper_model: str = "whisper-large-v3-turbo"
