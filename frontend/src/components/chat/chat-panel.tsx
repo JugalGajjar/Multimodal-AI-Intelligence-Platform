@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Database,
+  Globe,
   Loader2,
   MessageSquareText,
   Network,
@@ -32,6 +34,7 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleChip } from "@/components/ui/toggle-chip";
 import { ApiError } from "@/lib/api";
 import {
   streamChatQuery,
@@ -40,6 +43,7 @@ import {
   type ChatStreamMeta,
   type ChatVerification,
   type VerificationVerdict,
+  type WebCitation,
 } from "@/lib/chat-api";
 import { chatToGraphProps } from "@/lib/graph-from-chat";
 import { useAuthStore } from "@/store/auth";
@@ -53,7 +57,7 @@ function errorMessage(err: unknown): string {
     if (err.status === 502)
       return "The model provider returned an error. Try again or pick a different model.";
     if (err.status === 503)
-      return "Chat is not configured. The OpenRouter API key is missing.";
+      return "Chat is not configured. A required provider key is missing on the server.";
     return `Request failed (${err.status}).`;
   }
   if (err && typeof err === "object" && "status" in err && "detail" in err) {
@@ -71,6 +75,10 @@ type StreamState = {
   text: string;
   verification: ChatVerification | null;
   error: unknown | null;
+  // True when strict mode applies to this turn (from meta) — rendering is
+  // buffered until `done` decides between the answer and a refusal.
+  strict: boolean;
+  strictRefusal: string | null;
 };
 
 const INITIAL_STREAM: StreamState = {
@@ -79,11 +87,15 @@ const INITIAL_STREAM: StreamState = {
   text: "",
   verification: null,
   error: null,
+  strict: false,
+  strictRefusal: null,
 };
 
 export function ChatPanel() {
   const token = useAuthStore((s) => s.token);
   const [query, setQuery] = useState("");
+  const [useRag, setUseRag] = useState(true);
+  const [useWeb, setUseWeb] = useState(false);
   const [stream, setStream] = useState<StreamState>(INITIAL_STREAM);
   const pending = stream.status === "streaming";
 
@@ -96,9 +108,10 @@ export function ChatPanel() {
     try {
       await streamChatQuery(
         token,
-        { query: query.trim(), top_k: 4 },
+        { query: query.trim(), top_k: 4, use_rag: useRag, use_web: useWeb },
         {
-          onMeta: (meta) => setStream((s) => ({ ...s, meta })),
+          onMeta: (meta) =>
+            setStream((s) => ({ ...s, meta, strict: meta.strict ?? false })),
           onToken: (text) =>
             setStream((s) => ({ ...s, text: s.text + text })),
           onDone: (done) =>
@@ -106,6 +119,7 @@ export function ChatPanel() {
               ...s,
               status: "done",
               verification: done.verification,
+              strictRefusal: done.strict_refusal ?? null,
             })),
           onError: (err) =>
             setStream((s) => ({ ...s, status: "error", error: err })),
@@ -150,9 +164,31 @@ export function ChatPanel() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="What does the document say about…?"
               rows={3}
-              className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3.5 pr-14 text-sm leading-relaxed shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30 sm:pr-36"
+              className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3.5 pb-12 pr-14 text-sm leading-relaxed shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30 sm:pr-36"
               required
             />
+            <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+              <ToggleChip
+                pressed={useRag}
+                onPressedChange={setUseRag}
+                disabled={pending}
+                title="Answer from your uploaded documents"
+                data-testid="toggle-rag"
+              >
+                <Database className="size-3" aria-hidden="true" />
+                RAG
+              </ToggleChip>
+              <ToggleChip
+                pressed={useWeb}
+                onPressedChange={setUseWeb}
+                disabled={pending}
+                title="Augment with fresh web search results"
+                data-testid="toggle-web"
+              >
+                <Globe className="size-3" aria-hidden="true" />
+                Web
+              </ToggleChip>
+            </div>
             <Button
               type="submit"
               disabled={pending || !query.trim()}
@@ -205,7 +241,7 @@ export function ChatPanel() {
         )}
 
         {/* Skeleton while streaming has started but no meta + no tokens arrived */}
-        {pending && !response && (
+        {pending && !response && !stream.strict && (
           <div
             className="space-y-3 rounded-xl border border-border/60 bg-background/50 px-5 py-4"
             data-testid="chat-answer-skeleton"
@@ -216,7 +252,24 @@ export function ChatPanel() {
           </div>
         )}
 
-        {response && <Answer response={response} streaming={pending} />}
+        {/* Strict mode buffers rendering: tokens accumulate hidden until
+            `done` decides between the answer and a refusal. */}
+        {pending && stream.strict && (
+          <div
+            className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/50 px-5 py-4 text-sm text-muted-foreground"
+            data-testid="chat-verifying"
+          >
+            <Loader2
+              className="size-4 animate-spin text-[color:var(--brand)]"
+              aria-hidden="true"
+            />
+            Generating &amp; verifying answer…
+          </div>
+        )}
+
+        {response && !(pending && stream.strict) && (
+          <Answer response={response} streaming={pending} />
+        )}
       </CardContent>
     </Card>
   );
@@ -226,13 +279,16 @@ function streamToResponse(stream: StreamState): ChatResponse | null {
   if (!stream.meta && stream.text === "" && stream.status !== "done") return null;
   const meta = stream.meta;
   return {
-    answer: stream.text,
+    answer: stream.strictRefusal ?? stream.text,
     citations: meta?.citations ?? [],
     entities_used: meta?.entities_used ?? [],
     model: meta?.model ?? "",
     used_context: meta?.used_context ?? false,
     used_graph: meta?.used_graph ?? false,
+    used_web: meta?.used_web ?? false,
+    web_citations: meta?.web_citations ?? [],
     verification: stream.verification ?? undefined,
+    strict_refusal: stream.strictRefusal != null,
     intent: meta?.intent,
   };
 }
@@ -271,10 +327,33 @@ function Answer({
             used graph
           </Badge>
         )}
+        {response.used_web && (
+          <Badge className="gap-1 bg-sky-500/90 text-white hover:bg-sky-500 dark:bg-sky-500/80">
+            <Globe className="size-3" aria-hidden="true" />
+            used web
+          </Badge>
+        )}
         {response.verification && (
           <VerificationBadge verification={response.verification} />
         )}
       </div>
+
+      {response.strict_refusal && (
+        <div
+          className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs"
+          data-testid="strict-refusal-notice"
+        >
+          <AlertTriangle
+            className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden="true"
+          />
+          <span>
+            Strict mode withheld this answer — its groundedness score fell
+            below the required threshold. The verification badge above shows
+            the actual score.
+          </span>
+        </div>
+      )}
 
       <div className="rounded-xl border border-border/60 bg-background/50 px-4 py-4 text-sm leading-relaxed break-words sm:px-5">
         <p className="whitespace-pre-wrap" data-testid="chat-answer-text">
@@ -295,7 +374,8 @@ function Answer({
           <UnsupportedClaimsPanel verification={response.verification} />
         )}
 
-      {response.citations.length > 0 && (
+      {/* Citations cite the withheld answer — hide them when refused. */}
+      {!response.strict_refusal && response.citations.length > 0 && (
         <div className="space-y-2">
           <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Citations
@@ -307,6 +387,20 @@ function Answer({
           </ol>
         </div>
       )}
+
+      {!response.strict_refusal &&
+        (response.web_citations?.length ?? 0) > 0 && (
+          <div className="space-y-2">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Web sources
+            </p>
+            <ol className="space-y-2">
+              {response.web_citations!.map((w, i) => (
+                <WebCitationItem key={w.url} index={i + 1} citation={w} />
+              ))}
+            </ol>
+          </div>
+        )}
 
       {hasGraph && (
         <div className="space-y-2" data-testid="inline-graph">
@@ -488,6 +582,46 @@ function UnsupportedClaimsPanel({
         </ul>
       )}
     </div>
+  );
+}
+
+function WebCitationItem({
+  index,
+  citation,
+}: {
+  index: number;
+  citation: WebCitation;
+}) {
+  let host = "";
+  try {
+    host = new URL(citation.url).hostname;
+  } catch {
+    host = citation.url;
+  }
+  return (
+    <li
+      className="rounded-lg border border-border/60 bg-background/50 px-3 py-2.5 text-xs"
+      data-testid="web-citation-item"
+    >
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <a
+          href={citation.url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex min-w-0 items-center gap-1 font-medium text-foreground/90 transition-colors hover:text-[color:var(--brand)]"
+        >
+          <span className="font-mono text-[color:var(--brand)]">
+            [W{index}]
+          </span>
+          <span className="truncate">{citation.title || host}</span>
+          <ArrowUpRight className="size-3 shrink-0" aria-hidden="true" />
+        </a>
+        <span className="shrink-0 text-muted-foreground">{host}</span>
+      </div>
+      {citation.snippet && (
+        <p className="text-foreground/80">{citation.snippet}</p>
+      )}
+    </li>
   );
 }
 

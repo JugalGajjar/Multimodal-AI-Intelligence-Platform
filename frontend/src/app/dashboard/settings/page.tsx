@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/auth-gate";
 import { AppShell } from "@/components/layout/app-shell";
+import { ChatSettingsCard } from "@/components/settings/chat-settings-card";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,6 +71,8 @@ function SettingsInner() {
           <ThemeToggle />
         </CardContent>
       </Card>
+
+      <ChatSettingsCard />
 
       <Card className="glass">
         <CardHeader>

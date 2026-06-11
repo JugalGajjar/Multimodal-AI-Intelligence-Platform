@@ -43,15 +43,21 @@ function sseFromBody(body: AnyBody): Response {
     intent: body.intent ?? "chat",
     used_context: !!body.used_context,
     used_graph: !!body.used_graph,
+    used_web: !!body.used_web,
     model: body.model ?? "",
     citations: body.citations ?? [],
     entities_used: body.entities_used ?? [],
+    web_citations: body.web_citations ?? [],
+    strict: !!body.strict,
   };
   const answer = (body.answer ?? "") as string;
   // Split into a few chunks so tests can observe streaming if they want to.
   const tokens =
     answer.length === 0 ? [] : [answer.slice(0, Math.ceil(answer.length / 2)), answer.slice(Math.ceil(answer.length / 2))];
-  const done = { verification: body.verification ?? null };
+  const done = {
+    verification: body.verification ?? null,
+    strict_refusal: body.strict_refusal ?? null,
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -613,6 +619,155 @@ describe("<ChatPanel />", () => {
 
       const badge = await screen.findByTestId("intent-badge");
       expect(badge).toHaveTextContent(/graph route/i);
+    });
+  });
+
+  describe("RAG / Web toggles", () => {
+    it("renders with RAG on and Web off by default", () => {
+      vi.stubGlobal("fetch", vi.fn());
+      renderWithQuery(<ChatPanel />);
+
+      expect(screen.getByTestId("toggle-rag")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(screen.getByTestId("toggle-web")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
+    it("sends toggle state in the request payload", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(sseFromBody(SUCCESS_BODY));
+      vi.stubGlobal("fetch", fetchMock);
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.click(screen.getByTestId("toggle-rag")); // off
+      await userEvent.click(screen.getByTestId("toggle-web")); // on
+      await userEvent.type(screen.getByLabelText(/question/i), "latest news?");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const body = JSON.parse(
+        (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+      );
+      expect(body.use_rag).toBe(false);
+      expect(body.use_web).toBe(true);
+    });
+  });
+
+  describe("web citations", () => {
+    it("renders web sources as external links and a used-web badge", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          sseFromBody({
+            ...SUCCESS_BODY,
+            used_web: true,
+            web_citations: [
+              {
+                url: "https://example.com/post",
+                title: "Example Post",
+                snippet: "An example snippet.",
+                score: 0.9,
+              },
+            ],
+          }),
+        ),
+      );
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "q");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      const item = await screen.findByTestId("web-citation-item");
+      const link = within(item).getByRole("link", { name: /example post/i });
+      expect(link).toHaveAttribute("href", "https://example.com/post");
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(within(item).getByText(/an example snippet/i)).toBeInTheDocument();
+      expect(screen.getByText(/used web/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("strict mode buffering", () => {
+    it("hides streamed text behind a verifying state, then reveals the answer", async () => {
+      let resolveFetch!: (r: Response) => void;
+      const deferred = new Promise<Response>((r) => {
+        resolveFetch = r;
+      });
+      vi.stubGlobal("fetch", vi.fn().mockReturnValue(deferred));
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "q");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      resolveFetch(
+        sseFromBody({
+          ...SUCCESS_BODY,
+          strict: true,
+          verification: {
+            verdict: "verified",
+            groundedness_score: 0.95,
+            total_claims: 2,
+            supported_claims: 2,
+            unsupported_claims: [],
+            skip_reason: "",
+          },
+        }),
+      );
+
+      // After `done`, the answer is revealed (stream resolves fast in tests,
+      // so we assert the final state: answer visible, no refusal notice).
+      await waitFor(() => {
+        expect(screen.getByTestId("chat-answer")).toBeInTheDocument();
+      });
+      expect(
+        screen.getByText(/embeddings use 384 dimensions/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("strict-refusal-notice"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId("chat-verifying")).not.toBeInTheDocument();
+    });
+
+    it("replaces the answer with the refusal and hides citations when gated", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          sseFromBody({
+            ...SUCCESS_BODY,
+            strict: true,
+            strict_refusal:
+              "I can't answer this confidently from your documents.",
+            verification: {
+              verdict: "unsupported",
+              groundedness_score: 0.2,
+              total_claims: 3,
+              supported_claims: 0,
+              unsupported_claims: [],
+              skip_reason: "",
+            },
+          }),
+        ),
+      );
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "q");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await screen.findByTestId("strict-refusal-notice");
+
+      // Refusal text replaces the streamed answer.
+      expect(screen.getByTestId("chat-answer-text")).toHaveTextContent(
+        /can't answer this confidently/i,
+      );
+      expect(
+        screen.queryByText(/embeddings use 384 dimensions/i),
+      ).not.toBeInTheDocument();
+      // Citations cite a withheld answer — hidden.
+      expect(screen.queryByTestId("citation-item")).not.toBeInTheDocument();
+      // Verification badge stays for transparency.
+      expect(screen.getByTestId("verification-badge")).toBeInTheDocument();
     });
   });
 });

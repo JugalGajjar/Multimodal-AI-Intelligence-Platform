@@ -42,6 +42,13 @@ export type ChatVerification = {
 
 export type ChatIntent = "chat" | "summarize" | "explain_graph";
 
+export type WebCitation = {
+  url: string;
+  title: string;
+  snippet: string;
+  score: number;
+};
+
 export type ChatResponse = {
   answer: string;
   citations: ChatCitation[];
@@ -49,7 +56,10 @@ export type ChatResponse = {
   model: string;
   used_context: boolean;
   used_graph: boolean;
+  used_web?: boolean;
+  web_citations?: WebCitation[];
   verification?: ChatVerification;
+  strict_refusal?: boolean;
   intent?: ChatIntent | string;
 };
 
@@ -57,6 +67,8 @@ export type ChatRequest = {
   query: string;
   top_k?: number;
   document_ids?: string[];
+  use_rag?: boolean;
+  use_web?: boolean;
 };
 
 export function sendChatQuery(
@@ -74,13 +86,19 @@ export type ChatStreamMeta = {
   intent: ChatIntent | string;
   used_context: boolean;
   used_graph: boolean;
+  used_web: boolean;
   model: string;
   citations: ChatCitation[];
   entities_used: ChatEntityUsed[];
+  web_citations: WebCitation[];
+  // True when strict mode applies to this turn — the client buffers
+  // rendering until `done` decides between the answer and a refusal.
+  strict: boolean;
 };
 
 export type ChatStreamDone = {
   verification: ChatVerification;
+  strict_refusal: string | null;
 };
 
 export type ChatStreamHandlers = {
