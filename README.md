@@ -6,7 +6,7 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 
-Retrieval-augmented chat over text, PDFs, images, audio, and video, with a live knowledge graph extracted from your uploads and grounded, cited answers.
+Retrieval-augmented chat over text, PDFs, images, audio, and video, with a live knowledge graph extracted from your uploads, optional web-search augmentation, and grounded, cited answers.
 
 Live at **[projectmmap.com](https://projectmmap.com)**.
 
@@ -20,7 +20,9 @@ Upload anything readable. The platform extracts the text (OCR for images, Whispe
 - **Video understanding.** Adaptive frame sampling (cv2) plus audio extraction (ffmpeg) feed a single fused Nemotron VL call with the Whisper transcript embedded as document context — the model cross-references what's said against what's shown. 5-minute cap.
 - **Knowledge graph.** Entities and relationships extracted per document, visualized client-side, and used to ground answers.
 - **Cited chat.** Streaming answers with chunk-level citations and a per-answer subgraph highlighting the entities the model used.
-- **Verification.** Each answer is checked against retrieved context and flags unsupported claims.
+- **Chat controls.** Per-question RAG and Web toggles: answer from your documents (default), the model's own knowledge, fresh Tavily web results with clickable `[W#]` source citations, or any combination.
+- **Strict and regular modes.** Strict (default) fact-checks every answer against your documents and cited web sources, withholding anything below the grounding threshold; regular blends documents with model knowledge. Configurable per account, along with a 1–10 cap on websites searched.
+- **Verification.** Each answer is checked against retrieved context (and web results when used) and flags unsupported claims.
 
 ## Architecture
 
@@ -54,6 +56,7 @@ Upload anything readable. The platform extracts the text (OCR for images, Whispe
 |  OpenRouter (Nemotron |
 |  Nano 2 VL, DeepSeek) |
 |  Groq (Whisper, Llama)|
+|  Tavily (web search)  |
 +-----------------------+
 ```
 
@@ -67,7 +70,7 @@ The API stays light. All heavy lifting (OCR, ASR, embedding, vision, graph extra
 
 **Data plane.** Postgres for users and document metadata, Qdrant for vector search, Neo4j for the entity graph, Redis for the job queue and rate limiting, S3-compatible object storage (Cloudflare R2 in prod, MinIO in dev) for raw uploads.
 
-**Models.** OpenRouter for vision and video (NVIDIA Nemotron Nano 2 VL) and reasoning (DeepSeek). Groq for audio transcription (Whisper Large v3 Turbo) and entity extraction (Llama 3.3 70B).
+**Models.** OpenRouter for vision and video (NVIDIA Nemotron Nano 2 VL) and reasoning (DeepSeek). Groq for audio transcription (Whisper Large v3 Turbo) and entity extraction (Llama 3.3 70B). Tavily for web-search augmentation.
 
 **Tests.** pytest (backend unit and integration), vitest plus Testing Library (frontend), Playwright (end-to-end), with a nightly workflow that spins up the full docker compose stack.
 
@@ -78,6 +81,7 @@ Requires Docker, Docker Compose, and Make-friendly shell tools.
 ```bash
 cp .env.example .env
 # Fill in OPENROUTER_API_KEY and GROQ_API_KEY at minimum.
+# TAVILY_API_KEY is optional — only needed for the chat "Web" toggle.
 
 docker compose up --build
 ```
@@ -124,6 +128,8 @@ All configuration is driven by environment variables. See [`.env.example`](.env.
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j connection. AuraDB instances use a non-`neo4j` username. |
 | `OPENROUTER_API_KEY` | Required for vision, video, and reasoning. |
 | `GROQ_API_KEY` | Required for audio transcription and entity extraction. |
+| `TAVILY_API_KEY` | Web search for the chat "Web" toggle. Without it, web-toggled requests return 503. |
+| `STRICT_GROUNDEDNESS_THRESHOLD` | Strict-mode gate (default 0.80). Answers scoring below are withheld. |
 | `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | Transactional email. When unset, registration returns the verification code in the response (dev only). |
 | `RATE_LIMIT_ENABLED` | Per-IP limits on `/auth/*`. Disable in test suites. |
 | `OTEL_ENABLED` / `OTEL_ENDPOINT` | OpenTelemetry export. Off in CI. |
@@ -189,7 +195,7 @@ backend/                FastAPI app, arq worker, Alembic migrations
     graph/              Neo4j client, entity extraction, graph router
     ingestion/          PDF parse, OCR, vision, transcription pipelines
     ocr/                RapidOCR wrapper
-    rag/                retrieval, prompts, OpenRouter and Groq clients
+    rag/                retrieval, prompts, OpenRouter/Groq/Tavily clients
     storage/            Qdrant client, R2/MinIO client
     transcription/      Groq Whisper client
     video/              fused-RAG video description (Nemotron VL)
@@ -201,7 +207,7 @@ backend/                FastAPI app, arq worker, Alembic migrations
 frontend/               Next.js 16 app
   src/
     app/                routes (App Router)
-    components/         UI components (auth, chat, documents, graph, layout, theme, ui)
+    components/         UI components (auth, chat, documents, graph, layout, settings, theme, ui)
     hooks/              cross-cutting hooks (status toasts, etc.)
     lib/                API clients, helpers, color/graph utilities
     store/              Zustand stores (auth)
