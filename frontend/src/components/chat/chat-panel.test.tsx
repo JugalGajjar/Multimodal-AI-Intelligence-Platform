@@ -770,4 +770,49 @@ describe("<ChatPanel />", () => {
       expect(screen.getByTestId("verification-badge")).toBeInTheDocument();
     });
   });
+
+  describe("input ergonomics + markdown", () => {
+    it("Enter submits the question; Shift+Enter does not", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(sseFromBody(SUCCESS_BODY));
+      vi.stubGlobal("fetch", fetchMock);
+      renderWithQuery(<ChatPanel />);
+
+      const input = screen.getByLabelText(/question/i);
+      await userEvent.type(input, "line one{Shift>}{Enter}{/Shift}line two");
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await userEvent.type(input, "{Enter}");
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const body = JSON.parse(
+        (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+      );
+      expect(body.query).toContain("line one");
+      expect(body.query).toContain("line two");
+    });
+
+    it("renders markdown in the answer (bold, list items)", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          sseFromBody({
+            ...SUCCESS_BODY,
+            answer: "Key points:\n\n- **First** item\n- Second item",
+          }),
+        ),
+      );
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "q");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await screen.findByTestId("chat-answer-text");
+      await waitFor(() => {
+        const answer = screen.getByTestId("chat-answer-text");
+        const strong = answer.querySelector("strong");
+        expect(strong).not.toBeNull();
+        expect(strong!.textContent).toBe("First");
+        expect(answer.querySelectorAll("li")).toHaveLength(2);
+      });
+    });
+  });
 });

@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { KnowledgeGraph } from "@/components/graph/knowledge-graph";
 import { Badge } from "@/components/ui/badge";
@@ -162,7 +164,14 @@ export function ChatPanel() {
               id="chat-query"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="What does the document say about…?"
+              onKeyDown={(e) => {
+                // Enter sends; Shift+Enter inserts a newline.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+              placeholder="What does the document say about…? (Enter to send, Shift+Enter for a new line)"
               rows={3}
               className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3.5 pb-12 pr-14 text-sm leading-relaxed shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30 sm:pr-36"
               required
@@ -356,8 +365,13 @@ function Answer({
       )}
 
       <div className="rounded-xl border border-border/60 bg-background/50 px-4 py-4 text-sm leading-relaxed break-words sm:px-5">
-        <p className="whitespace-pre-wrap" data-testid="chat-answer-text">
-          {response.answer}
+        <div
+          className="prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted/60 prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none"
+          data-testid="chat-answer-text"
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {response.answer}
+          </ReactMarkdown>
           {streaming && (
             <span
               aria-hidden="true"
@@ -365,7 +379,7 @@ function Answer({
               data-testid="streaming-cursor"
             />
           )}
-        </p>
+        </div>
       </div>
 
       {response.verification &&
