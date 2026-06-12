@@ -180,7 +180,7 @@ Production-only quirks worth knowing:
 - **Neo4j AuraDB instances** ship with a generated username, not the literal `neo4j`. Copy the username from the Aura console into `NEO4J_USER`.
 - **slowapi** is configured against sync `redis://` because the limits library's `async+redis` strategy needs `coredis` and the default slowapi strategy isn't compatible with it.
 
-The frontend redeploys on push to `main` via Vercel's Git integration. Backend redeploys are scripted under `scripts/`.
+The frontend deploys manually via the Vercel CLI — `vercel --prod` from `frontend/`. Backend redeploys are scripted under `scripts/`.
 
 ## Repo layout
 
