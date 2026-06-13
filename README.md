@@ -6,7 +6,7 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 
-Retrieval-augmented chat over text, PDFs, images, audio, and video, with a live knowledge graph extracted from your uploads, optional web-search augmentation, and grounded, cited answers.
+Retrieval-augmented chat over text, PDFs, images, audio, and video, with a live knowledge graph extracted from your uploads, optional web-search augmentation, persistent multi-turn chat history, and grounded, cited answers.
 
 Live at **[projectmmap.com](https://projectmmap.com)**.
 
@@ -22,6 +22,7 @@ Upload anything readable. The platform extracts the text (OCR for images, Whispe
 - **Cited chat.** Streaming answers with chunk-level citations and a per-answer subgraph highlighting the entities the model used.
 - **Chat controls.** Per-question RAG and Web toggles: answer from your documents (default), the model's own knowledge, fresh Tavily web results with clickable `[W#]` source citations, or any combination.
 - **Strict and regular modes.** Strict (default) fact-checks every answer against your documents and cited web sources, withholding anything below the grounding threshold; regular blends documents with model knowledge. Configurable per account, along with a 1–10 cap on websites searched.
+- **Persistent chat history.** Every conversation is saved with an auto-generated title and short summary. The dashboard keeps a live session thread that survives client navigation and resets on hard refresh; the Chats page lets you search across titles, summaries, and full message text, rename or delete saved threads, and read transcripts with citations intact. Follow-up questions see prior turns of the same chat.
 - **Verification.** Each answer is checked against retrieved context (and web results when used) and flags unsupported claims.
 
 ## Architecture
@@ -190,6 +191,7 @@ backend/                FastAPI app, arq worker, Alembic migrations
     agents/             LangGraph workflows (chat, intent routing, summarization, verification)
     api/                health, metrics, router glue
     auth/               registration, login, email verification, password reset
+    chats/              chat history: models, persistence, list/search/rename/delete
     documents/          upload, list, get, chunks, text, summary, reindex
     embeddings/         sentence-transformers client + chunking
     graph/              Neo4j client, entity extraction, graph router
@@ -207,10 +209,10 @@ backend/                FastAPI app, arq worker, Alembic migrations
 frontend/               Next.js 16 app
   src/
     app/                routes (App Router)
-    components/         UI components (auth, chat, documents, graph, layout, settings, theme, ui)
+    components/         UI components (auth, chat, chats, documents, graph, layout, settings, theme, ui)
     hooks/              cross-cutting hooks (status toasts, etc.)
     lib/                API clients, helpers, color/graph utilities
-    store/              Zustand stores (auth)
+    store/              Zustand stores (auth, chat session)
 e2e/                    Playwright specs
 docker-compose.yml      Dev stack (frontend, backend, worker, Postgres, Redis, Qdrant, Neo4j, MinIO, Traefik)
 docker-compose.prod.yml Production overlay
