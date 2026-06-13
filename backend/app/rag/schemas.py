@@ -9,6 +9,8 @@ class ChatRequest(BaseModel):
     document_ids: list[UUID] | None = None
     use_rag: bool = True
     use_web: bool = False
+    # /chat/stream only; null starts a new chat.
+    chat_id: UUID | None = None
 
 
 class WebCitation(BaseModel):

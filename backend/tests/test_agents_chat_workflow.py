@@ -491,7 +491,14 @@ async def test_prepare_context_state_parity_with_graph(use_rag, use_web, intent)
         patch.object(wf, "verify_answer", new=AsyncMock(return_value=_VERIFIED)),
     )
 
-    kwargs = dict(query="q", user_id=uuid4(), use_rag=use_rag, use_web=use_web, web_max_results=3)
+    kwargs = dict(
+        query="q",
+        user_id=uuid4(),
+        use_rag=use_rag,
+        use_web=use_web,
+        web_max_results=3,
+        history=[{"role": "user", "content": "prior q"}],
+    )
 
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
         full = await wf.run_chat(**kwargs)
@@ -515,3 +522,53 @@ async def test_prepare_context_state_parity_with_graph(use_rag, use_web, intent)
         "used_web",
     ):
         assert prepared.get(key) == full.get(key), f"{key} drifted for {kwargs}"
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn history
+# ---------------------------------------------------------------------------
+
+
+def test_build_respond_messages_inserts_history_between_system_and_user():
+    history = [
+        {"role": "user", "content": "first question"},
+        {"role": "assistant", "content": "first answer"},
+    ]
+    state = {"query": "follow-up?", "history": history, "chunks": [_chunk("ctx")]}
+
+    messages = wf.build_respond_messages(state)  # type: ignore[arg-type]
+
+    assert messages[0]["role"] == "system"
+    assert messages[1:3] == history
+    assert messages[-1]["role"] == "user"
+    assert "follow-up?" in messages[-1]["content"]
+    assert len(messages) == 4
+
+
+def test_build_respond_messages_without_history_keeps_two_messages():
+    state = {"query": "q", "chunks": [_chunk("ctx")]}
+    messages = wf.build_respond_messages(state)  # type: ignore[arg-type]
+    assert len(messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_history_flows_through_run_chat_to_respond_prompt():
+    captured: dict = {}
+
+    async def fake_chat(*, messages, **kwargs):
+        captured["messages"] = messages
+        return "ok"
+
+    history = [
+        {"role": "user", "content": "what is qdrant?"},
+        {"role": "assistant", "content": "a vector database"},
+    ]
+    with (
+        patch.object(wf, "retrieve", return_value=[]),
+        patch.object(wf, "_safe_expand", new=AsyncMock(return_value=[])),
+        patch.object(wf, "chat_completion", new=fake_chat),
+        patch.object(wf, "verify_answer", new=AsyncMock(return_value=_VERIFIED)),
+    ):
+        await wf.run_chat(query="and weaviate?", user_id=uuid4(), history=history)
+
+    assert captured["messages"][1:3] == history

@@ -63,6 +63,34 @@ class _StubUser:
         self.web_max_results = web_max_results
 
 
+def _ctx(
+    *,
+    created_now: bool = True,
+    is_first_turn: bool = True,
+    next_seq: int = 0,
+    history: list[dict] | None = None,
+) -> "rag_router._ChatCtx":
+    return rag_router._ChatCtx(
+        chat_id=uuid4(),
+        created_now=created_now,
+        is_first_turn=is_first_turn,
+        next_seq=next_seq,
+        history=history or [],
+    )
+
+
+@pytest.fixture(autouse=True)
+def _mock_chat_persistence():
+    """Persistence is exercised by dedicated tests below; keep the rest of
+    the suite focused on SSE behavior."""
+    with (
+        patch.object(rag_router, "persist_turn", new=AsyncMock()) as persist,
+        patch.object(rag_router, "refresh_chat_summary", new=AsyncMock()) as refresh,
+        patch.object(rag_router, "delete_chat_row", new=AsyncMock()) as cleanup,
+    ):
+        yield {"persist": persist, "refresh": refresh, "cleanup": cleanup}
+
+
 @pytest.mark.asyncio
 async def test_stream_emits_meta_tokens_then_done():
     """Happy path: meta first, then one token per chunk, then done."""
@@ -96,7 +124,7 @@ async def test_stream_emits_meta_tokens_then_done():
         ),
     ):
         payload = ChatRequest(query="what is qdrant?", top_k=3)
-        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user)))  # type: ignore[arg-type]
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user, _ctx())))  # type: ignore[arg-type]
 
     assert [e[0] for e in events] == ["meta", "token", "token", "token", "done"]
 
@@ -124,7 +152,7 @@ async def test_stream_emits_error_when_prepare_context_fails():
         new=AsyncMock(side_effect=GroqChatError(429, {"detail": "rate"})),
     ):
         payload = ChatRequest(query="q", top_k=3)
-        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user)))  # type: ignore[arg-type]
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user, _ctx())))  # type: ignore[arg-type]
 
     assert len(events) == 1
     assert events[0][0] == "error"
@@ -154,7 +182,7 @@ async def test_stream_emits_error_when_token_stream_fails_mid_flight():
         patch.object(rag_router, "stream_chat_completion", new=fake_stream),
     ):
         payload = ChatRequest(query="q", top_k=3)
-        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user)))  # type: ignore[arg-type]
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user, _ctx())))  # type: ignore[arg-type]
 
     assert [e[0] for e in events] == ["meta", "token", "error"]
     assert events[2][1]["status"] == 429
@@ -189,7 +217,7 @@ async def test_stream_runs_verification_against_full_concatenated_answer():
         patch.object(rag_router, "verify_answer", new=fake_verify),
     ):
         payload = ChatRequest(query="q", top_k=3)
-        await _drain(rag_router._stream_generator(payload, user))  # type: ignore[arg-type]
+        await _drain(rag_router._stream_generator(payload, user, _ctx()))  # type: ignore[arg-type]
 
     assert captured["answer"] == "A B C."
 
@@ -224,7 +252,7 @@ async def test_stream_meta_carries_intent_and_graph_flags():
         ),
     ):
         payload = ChatRequest(query="recap", top_k=3)
-        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user)))  # type: ignore[arg-type]
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user, _ctx())))  # type: ignore[arg-type]
 
     meta = events[0][1]
     assert meta["intent"] == "summarize"
@@ -271,7 +299,7 @@ async def test_stream_meta_carries_web_and_strict_fields():
         ),
     ):
         payload = ChatRequest(query="q", use_web=True)
-        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user)))  # type: ignore[arg-type]
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user, _ctx())))  # type: ignore[arg-type]
 
     meta = events[0][1]
     assert meta["used_web"] is True
@@ -314,7 +342,7 @@ async def test_stream_meta_strict_false_when_regular_or_rag_off():
             ),
         ):
             events = _parse_sse(
-                await _drain(rag_router._stream_generator(payload, user))  # type: ignore[arg-type]
+                await _drain(rag_router._stream_generator(payload, user, _ctx()))  # type: ignore[arg-type]
             )
         assert events[0][1]["strict"] is False
 
@@ -342,7 +370,7 @@ async def test_stream_done_carries_refusal_when_strict_gate_fires():
         patch.object(rag_router, "verify_answer", new=AsyncMock(return_value=low)),
     ):
         payload = ChatRequest(query="q")
-        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user)))  # type: ignore[arg-type]
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user, _ctx())))  # type: ignore[arg-type]
 
     done = events[-1][1]
     assert done["strict_refusal"] is not None
@@ -381,6 +409,199 @@ async def test_stream_verify_receives_web_results():
         patch.object(rag_router, "verify_answer", new=fake_verify),
     ):
         payload = ChatRequest(query="q", use_web=True)
-        await _drain(rag_router._stream_generator(payload, user))  # type: ignore[arg-type]
+        await _drain(rag_router._stream_generator(payload, user, _ctx()))  # type: ignore[arg-type]
 
     assert captured["web_results"] == web
+
+
+# ---------------------------------------------------------------------------
+# Chat persistence
+# ---------------------------------------------------------------------------
+
+
+def _basic_state(user, **over):
+    state = {
+        "query": "q",
+        "user_id": user.id,
+        "intent": "chat",
+        "chunks": [],
+        "graph_facts": [],
+        "used_context": False,
+        "used_graph": False,
+    }
+    state.update(over)
+    return state
+
+
+async def _one_token(**kwargs):
+    yield "answer text"
+
+
+@pytest.mark.asyncio
+async def test_stream_meta_carries_chat_id(_mock_chat_persistence):
+    user = _StubUser()
+    ctx = _ctx()
+    with (
+        patch.object(
+            rag_router,
+            "prepare_context_state",
+            new=AsyncMock(return_value=_basic_state(user)),
+        ),
+        patch.object(rag_router, "stream_chat_completion", new=_one_token),
+        patch.object(
+            rag_router,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="skipped", groundedness_score=0.0)
+            ),
+        ),
+    ):
+        payload = ChatRequest(query="q")
+        events = _parse_sse(
+            await _drain(rag_router._stream_generator(payload, user, ctx))  # type: ignore[arg-type]
+        )
+
+    assert events[0][1]["chat_id"] == str(ctx.chat_id)
+
+
+@pytest.mark.asyncio
+async def test_history_reaches_prepare_context_state(_mock_chat_persistence):
+    user = _StubUser()
+    history = [
+        {"role": "user", "content": "earlier q"},
+        {"role": "assistant", "content": "earlier a"},
+    ]
+    prepare = AsyncMock(return_value=_basic_state(user))
+    with (
+        patch.object(rag_router, "prepare_context_state", new=prepare),
+        patch.object(rag_router, "stream_chat_completion", new=_one_token),
+        patch.object(
+            rag_router,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="skipped", groundedness_score=0.0)
+            ),
+        ),
+    ):
+        payload = ChatRequest(query="q")
+        await _drain(
+            rag_router._stream_generator(payload, user, _ctx(history=history))  # type: ignore[arg-type]
+        )
+
+    assert prepare.call_args.kwargs["history"] == history
+
+
+@pytest.mark.asyncio
+async def test_persist_turn_receives_refusal_when_gated(_mock_chat_persistence):
+    user = _StubUser(rag_mode="strict")
+    low = VerificationResult(verdict="unsupported", groundedness_score=0.1)
+    ctx = _ctx(next_seq=4, is_first_turn=False)
+    with (
+        patch.object(
+            rag_router,
+            "prepare_context_state",
+            new=AsyncMock(return_value=_basic_state(user, chunks=[_chunk()], used_context=True)),
+        ),
+        patch.object(rag_router, "stream_chat_completion", new=_one_token),
+        patch.object(rag_router, "verify_answer", new=AsyncMock(return_value=low)),
+    ):
+        payload = ChatRequest(query="q")
+        await _drain(rag_router._stream_generator(payload, user, ctx))  # type: ignore[arg-type]
+
+    persist = _mock_chat_persistence["persist"]
+    persist.assert_awaited_once()
+    kwargs = persist.call_args.kwargs
+    assert "strict mode" in kwargs["answer"]
+    assert kwargs["answer"] != "answer text"
+    assert kwargs["response_meta"]["strict_refusal"] is True
+    assert kwargs["next_seq"] == 4
+    # Summary refresh sees the refusal too, and no title for a later turn.
+    refresh = _mock_chat_persistence["refresh"]
+    assert refresh.call_args.kwargs["generate_title"] is False
+    assert refresh.call_args.kwargs["turns"][-1]["content"] == kwargs["answer"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("created_now", [True, False])
+async def test_mid_stream_error_persists_nothing(created_now, _mock_chat_persistence):
+    user = _StubUser()
+
+    async def failing_stream(**kwargs):
+        yield "partial "
+        raise GroqChatError(429, {"detail": "rate"})
+
+    ctx = _ctx(created_now=created_now)
+    with (
+        patch.object(
+            rag_router,
+            "prepare_context_state",
+            new=AsyncMock(return_value=_basic_state(user)),
+        ),
+        patch.object(rag_router, "stream_chat_completion", new=failing_stream),
+    ):
+        payload = ChatRequest(query="q")
+        events = _parse_sse(
+            await _drain(rag_router._stream_generator(payload, user, ctx))  # type: ignore[arg-type]
+        )
+
+    assert events[-1][0] == "error"
+    _mock_chat_persistence["persist"].assert_not_awaited()
+    cleanup = _mock_chat_persistence["cleanup"]
+    if created_now:
+        cleanup.assert_awaited_once_with(ctx.chat_id)
+    else:
+        cleanup.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_title_generated_only_on_first_turn(_mock_chat_persistence):
+    user = _StubUser()
+    with (
+        patch.object(
+            rag_router,
+            "prepare_context_state",
+            new=AsyncMock(return_value=_basic_state(user)),
+        ),
+        patch.object(rag_router, "stream_chat_completion", new=_one_token),
+        patch.object(
+            rag_router,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="skipped", groundedness_score=0.0)
+            ),
+        ),
+    ):
+        payload = ChatRequest(query="q")
+        await _drain(
+            rag_router._stream_generator(payload, user, _ctx(is_first_turn=True))  # type: ignore[arg-type]
+        )
+
+    assert _mock_chat_persistence["refresh"].call_args.kwargs["generate_title"] is True
+
+
+@pytest.mark.asyncio
+async def test_persistence_failure_emits_no_extra_sse_bytes(_mock_chat_persistence):
+    user = _StubUser()
+    _mock_chat_persistence["persist"].side_effect = RuntimeError("db down")
+    with (
+        patch.object(
+            rag_router,
+            "prepare_context_state",
+            new=AsyncMock(return_value=_basic_state(user)),
+        ),
+        patch.object(rag_router, "stream_chat_completion", new=_one_token),
+        patch.object(
+            rag_router,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="skipped", groundedness_score=0.0)
+            ),
+        ),
+    ):
+        payload = ChatRequest(query="q")
+        events = _parse_sse(
+            await _drain(rag_router._stream_generator(payload, user, _ctx()))  # type: ignore[arg-type]
+        )
+
+    # Stream is intact and ends at `done` — the persistence failure is silent.
+    assert [e[0] for e in events] == ["meta", "token", "done"]

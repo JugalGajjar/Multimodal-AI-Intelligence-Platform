@@ -8,6 +8,7 @@ from sqlalchemy.engine import Connection
 
 # Import the model modules so Base.metadata is populated.
 from app.auth import models as _auth_models  # noqa: F401
+from app.chats import models as _chats_models  # noqa: F401
 from app.core.config import settings
 from app.documents import models as _documents_models  # noqa: F401
 from app.documents import chunks_model as _chunks_model  # noqa: F401

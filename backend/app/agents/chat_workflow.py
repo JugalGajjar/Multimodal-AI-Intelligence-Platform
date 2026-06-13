@@ -49,6 +49,8 @@ class ChatState(TypedDict, total=False):
     use_web: bool  # default False
     rag_mode: str  # "strict" | "regular", from the user row
     web_max_results: int
+    # Past turns ([{role, content}]) — fed to respond only.
+    history: list[dict[str, str]]
 
     intent: Intent
     chunks: list[RetrievedChunk]
@@ -218,8 +220,11 @@ def build_respond_messages(state: ChatState) -> list[dict[str, str]]:
         summaries=summaries,
         web_results=web_results,
     )
+    # History sits between system and the current (context-laden) user msg.
+    history = state.get("history") or []
     return [
         {"role": "system", "content": system},
+        *history,
         {"role": "user", "content": user_msg},
     ]
 
@@ -244,6 +249,7 @@ async def prepare_context_state(
     use_web: bool = False,
     rag_mode: str = "strict",
     web_max_results: int = 5,
+    history: list[dict[str, str]] | None = None,
 ) -> ChatState:
     """Run classify + the appropriate retrieve branch + web search, returning
     a populated state ready for either `respond_node` or a streaming
@@ -262,6 +268,7 @@ async def prepare_context_state(
         "use_web": use_web,
         "rag_mode": rag_mode,
         "web_max_results": web_max_results,
+        "history": history or [],
     }
     state.update(await classify_node(state))  # type: ignore[typeddict-item]
 
@@ -356,6 +363,7 @@ async def run_chat(
     use_web: bool = False,
     rag_mode: str = "strict",
     web_max_results: int = 5,
+    history: list[dict[str, str]] | None = None,
 ) -> ChatState:
     initial: ChatState = {
         "query": query,
@@ -366,6 +374,7 @@ async def run_chat(
         "use_web": use_web,
         "rag_mode": rag_mode,
         "web_max_results": web_max_results,
+        "history": history or [],
     }
     final = await chat_workflow.ainvoke(initial)
     return final  # type: ignore[return-value]
