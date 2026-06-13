@@ -58,13 +58,20 @@ WORKDIR /app
 # Self-contained venv from the builder stage.
 COPY --from=builder /opt/venv /opt/venv
 
-# Pre-download the embedding model. Retry on HF 429s; if it still fails
-# the build keeps going — worker pulls at first use instead.
+# Pre-download the embedding model. Retry on HF 429s; FAIL the build if
+# all retries exhaust so the CI error is loud instead of producing an
+# image whose worker can't embed.
 RUN mkdir -p /app/.cache/huggingface && \
     for i in 1 2 3 4 5; do \
-      python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')" && break || \
-      (echo "HF download attempt $i failed; sleeping $((i*10))s" && sleep $((i*10))); \
-    done || echo "WARN: embedding model not pre-baked; worker will fetch at runtime"
+      if python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"; then \
+        break; \
+      fi; \
+      if [ "$i" = "5" ]; then \
+        echo "FATAL: HF model download failed after 5 attempts"; exit 1; \
+      fi; \
+      echo "HF download attempt $i failed; sleeping $((i*15))s"; \
+      sleep $((i*15)); \
+    done
 
 COPY app ./app
 COPY alembic ./alembic
