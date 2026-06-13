@@ -69,6 +69,8 @@ export type ChatRequest = {
   document_ids?: string[];
   use_rag?: boolean;
   use_web?: boolean;
+  // null/absent starts a new chat.
+  chat_id?: string | null;
 };
 
 export function sendChatQuery(
@@ -83,6 +85,7 @@ export function sendChatQuery(
 }
 
 export type ChatStreamMeta = {
+  chat_id: string;
   intent: ChatIntent | string;
   used_context: boolean;
   used_graph: boolean;
@@ -91,8 +94,7 @@ export type ChatStreamMeta = {
   citations: ChatCitation[];
   entities_used: ChatEntityUsed[];
   web_citations: WebCitation[];
-  // True when strict mode applies to this turn — the client buffers
-  // rendering until `done` decides between the answer and a refusal.
+  // Client buffers rendering until `done` when this is true.
   strict: boolean;
 };
 

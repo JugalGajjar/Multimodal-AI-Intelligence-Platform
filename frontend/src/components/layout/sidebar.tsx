@@ -2,6 +2,7 @@
 
 import {
   Files,
+  History,
   LayoutDashboard,
   Network,
   Settings,
@@ -31,6 +32,12 @@ const NAV: NavItem[] = [
     label: "Your documents",
     Icon: Files,
     match: (p) => p.startsWith("/dashboard/documents"),
+  },
+  {
+    href: "/dashboard/chats",
+    label: "Chats",
+    Icon: History,
+    match: (p) => p.startsWith("/dashboard/chats"),
   },
   {
     href: "/dashboard/graph",

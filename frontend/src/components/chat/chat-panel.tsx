@@ -1,31 +1,16 @@
 "use client";
 
 import {
-  AlertTriangle,
-  ArrowUpRight,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   Database,
   Globe,
   Loader2,
   MessageSquareText,
-  Network,
-  Route,
-  ScrollText,
+  Plus,
   SendHorizontal,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-  Sparkles,
 } from "lucide-react";
-import Link from "next/link";
-import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useRef, useState } from "react";
 
-import { KnowledgeGraph } from "@/components/graph/knowledge-graph";
-import { Badge } from "@/components/ui/badge";
+import { Answer } from "@/components/chat/answer";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -40,19 +25,18 @@ import { ToggleChip } from "@/components/ui/toggle-chip";
 import { ApiError } from "@/lib/api";
 import {
   streamChatQuery,
-  type ChatCitation,
   type ChatResponse,
   type ChatStreamMeta,
   type ChatVerification,
-  type VerificationVerdict,
-  type WebCitation,
 } from "@/lib/chat-api";
-import { chatToGraphProps } from "@/lib/graph-from-chat";
 import { useAuthStore } from "@/store/auth";
+import { useChatSessionStore } from "@/store/chat-session";
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401 || err.status === 403) return "Please sign in again.";
+    if (err.status === 404)
+      return "This chat session no longer exists. Start a new chat.";
     if (err.status === 422) return "Query is invalid.";
     if (err.status === 429)
       return "Free-tier rate limit hit. Wait a few seconds and retry.";
@@ -77,8 +61,7 @@ type StreamState = {
   text: string;
   verification: ChatVerification | null;
   error: unknown | null;
-  // True when strict mode applies to this turn (from meta) — rendering is
-  // buffered until `done` decides between the answer and a refusal.
+  // From meta — buffer rendering until `done` when true.
   strict: boolean;
   strictRefusal: string | null;
 };
@@ -93,65 +76,250 @@ const INITIAL_STREAM: StreamState = {
   strictRefusal: null,
 };
 
+const STICK_TO_BOTTOM_PX = 80;
+
 export function ChatPanel() {
   const token = useAuthStore((s) => s.token);
+  const chatId = useChatSessionStore((s) => s.chatId);
+  const turns = useChatSessionStore((s) => s.turns);
+  const setChatId = useChatSessionStore((s) => s.setChatId);
+  const addTurn = useChatSessionStore((s) => s.addTurn);
+  const resetSession = useChatSessionStore((s) => s.reset);
+
   const [query, setQuery] = useState("");
+  const [currentQuestion, setCurrentQuestion] = useState("");
   const [useRag, setUseRag] = useState(true);
   const [useWeb, setUseWeb] = useState(false);
   const [stream, setStream] = useState<StreamState>(INITIAL_STREAM);
   const pending = stream.status === "streaming";
 
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const nearBottomRef = useRef(true);
+
+  // Stick to bottom only if the user was already there — don't yank them up.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && nearBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [stream.text, turns.length, pending]);
+
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    nearBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < STICK_TO_BOTTOM_PX;
+  }
+
+  function onNewChat() {
+    if (pending) return;
+    resetSession();
+    setStream(INITIAL_STREAM);
+    setQuery("");
+    setCurrentQuestion("");
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!token || !query.trim() || pending) return;
 
-    setStream({ ...INITIAL_STREAM, status: "streaming" });
+    const question = query.trim();
+    setCurrentQuestion(question);
+    setQuery("");
+    nearBottomRef.current = true;
+
+    // `acc` is the source of truth; setStream just mirrors it (React batching
+    // makes setStream(s => ...) reads after `await` unreliable).
+    const acc: StreamState = { ...INITIAL_STREAM, status: "streaming" };
+    const sync = () => setStream({ ...acc });
+    sync();
 
     try {
       await streamChatQuery(
         token,
-        { query: query.trim(), top_k: 4, use_rag: useRag, use_web: useWeb },
         {
-          onMeta: (meta) =>
-            setStream((s) => ({ ...s, meta, strict: meta.strict ?? false })),
-          onToken: (text) =>
-            setStream((s) => ({ ...s, text: s.text + text })),
-          onDone: (done) =>
-            setStream((s) => ({
-              ...s,
-              status: "done",
-              verification: done.verification,
-              strictRefusal: done.strict_refusal ?? null,
-            })),
-          onError: (err) =>
-            setStream((s) => ({ ...s, status: "error", error: err })),
+          query: question,
+          top_k: 4,
+          use_rag: useRag,
+          use_web: useWeb,
+          chat_id: chatId,
+        },
+        {
+          onMeta: (meta) => {
+            if (!useChatSessionStore.getState().chatId && meta.chat_id) {
+              setChatId(meta.chat_id);
+            }
+            acc.meta = meta;
+            acc.strict = meta.strict ?? false;
+            sync();
+          },
+          onToken: (text) => {
+            acc.text += text;
+            sync();
+          },
+          onDone: (done) => {
+            acc.status = "done";
+            acc.verification = done.verification;
+            acc.strictRefusal = done.strict_refusal ?? null;
+            sync();
+          },
+          onError: (err) => {
+            acc.status = "error";
+            acc.error = err;
+            // First-turn errors: backend cleans up the chat row, so drop the
+            // id we just adopted or the retry hits 404 forever.
+            if (useChatSessionStore.getState().turns.length === 0) {
+              resetSession();
+            }
+            sync();
+          },
         },
       );
-      // If the stream ended without a `done` event, treat as complete.
-      setStream((s) => (s.status === "streaming" ? { ...s, status: "done" } : s));
+      // Stream ended without `done` — treat as complete.
+      if (acc.status === "streaming") {
+        acc.status = "done";
+        sync();
+      }
+
+      if (acc.status === "done") {
+        const response = streamToResponse(acc);
+        if (response) {
+          addTurn(question, response);
+          setStream(INITIAL_STREAM);
+          setCurrentQuestion("");
+        }
+      } else {
+        // Restore the question so the user can retry — backend persists nothing.
+        setQuery(question);
+      }
     } catch (err) {
-      setStream((s) => ({ ...s, status: "error", error: err }));
+      acc.status = "error";
+      acc.error = err;
+      sync();
+      setQuery(question);
     }
   }
 
-  const response = streamToResponse(stream);
+  const liveResponse = streamToResponse(stream);
+  const hasThread = turns.length > 0 || pending || stream.status === "error";
 
   return (
-    <Card className="glass w-full py-6">
+    <Card className="glass flex w-full flex-col py-6">
       <CardHeader className="px-4 pb-2 sm:px-6">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageSquareText
-            className="size-4 text-[color:var(--brand)]"
-            aria-hidden="true"
-          />
-          Ask your documents
-        </CardTitle>
-        <CardDescription className="mt-1">
-          Retrieval-augmented chat over your uploaded text, PDFs, images,
-          audio, and video. Answers stream as the model thinks.
-        </CardDescription>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageSquareText
+                className="size-4 text-[color:var(--brand)]"
+                aria-hidden="true"
+              />
+              Ask your documents
+            </CardTitle>
+            <CardDescription className="mt-1">
+              Retrieval-augmented chat over your uploaded text, PDFs, images,
+              audio, and video. Follow-ups see earlier turns; a hard refresh
+              starts a new chat.
+            </CardDescription>
+          </div>
+          {hasThread && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onNewChat}
+              disabled={pending}
+              data-testid="chat-new"
+              className="shrink-0 gap-1"
+            >
+              <Plus className="size-3.5" aria-hidden="true" />
+              New chat
+            </Button>
+          )}
+        </div>
       </CardHeader>
-      <CardContent className="space-y-5 px-4 pt-2 sm:px-6">
+      <CardContent className="flex flex-col gap-5 px-4 pt-2 sm:px-6">
+        {/* Initial empty state, no thread yet */}
+        {!hasThread && (
+          <div
+            className="rounded-xl border border-dashed border-border/70 bg-background/30 px-5 py-6 text-center"
+            data-testid="chat-empty"
+          >
+            <MessageSquareText
+              className="mx-auto size-6 text-muted-foreground/70"
+              aria-hidden="true"
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Ask anything about your documents. Answers stream with citations
+              and a live entity graph when relevant.
+            </p>
+          </div>
+        )}
+
+        {hasThread && (
+          <div
+            ref={scrollRef}
+            onScroll={onScroll}
+            className="max-h-[60svh] space-y-6 overflow-y-auto pr-1"
+            data-testid="chat-thread"
+          >
+            {turns.map((turn) => (
+              <div key={turn.id} className="space-y-2" data-testid="chat-turn">
+                <QuestionBubble question={turn.question} />
+                <Answer response={turn.response} />
+              </div>
+            ))}
+
+            {/* In-flight turn */}
+            {(pending || stream.status === "error") && (
+              <div className="space-y-2" data-testid="chat-live-turn">
+                <QuestionBubble question={currentQuestion} />
+
+                {stream.status === "error" && (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+                  >
+                    {errorMessage(stream.error)}
+                  </p>
+                )}
+
+                {/* Skeleton until meta/tokens arrive */}
+                {pending && !liveResponse && !stream.strict && (
+                  <div
+                    className="space-y-3 rounded-xl border border-border/60 bg-background/50 px-5 py-4"
+                    data-testid="chat-answer-skeleton"
+                  >
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-11/12" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </div>
+                )}
+
+                {/* Strict mode buffers rendering until `done` decides between
+                    the answer and a refusal. */}
+                {pending && stream.strict && (
+                  <div
+                    className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/50 px-5 py-4 text-sm text-muted-foreground"
+                    data-testid="chat-verifying"
+                  >
+                    <Loader2
+                      className="size-4 animate-spin text-[color:var(--brand)]"
+                      aria-hidden="true"
+                    />
+                    Generating &amp; verifying answer…
+                  </div>
+                )}
+
+                {/* Keep partial answer visible after a mid-stream error. */}
+                {liveResponse &&
+                  (pending || stream.status === "error") &&
+                  !stream.strict && (
+                    <Answer response={liveResponse} streaming={pending} />
+                  )}
+              </div>
+            )}
+          </div>
+        )}
+
         <form onSubmit={onSubmit} className="space-y-2.5">
           <Label
             htmlFor="chat-query"
@@ -222,65 +390,18 @@ export function ChatPanel() {
             </Button>
           </div>
         </form>
-
-        {stream.status === "error" && (
-          <p
-            role="alert"
-            className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-          >
-            {errorMessage(stream.error)}
-          </p>
-        )}
-
-        {/* Initial empty state, no query yet */}
-        {stream.status === "idle" && !response && (
-          <div
-            className="rounded-xl border border-dashed border-border/70 bg-background/30 px-5 py-6 text-center"
-            data-testid="chat-empty"
-          >
-            <MessageSquareText
-              className="mx-auto size-6 text-muted-foreground/70"
-              aria-hidden="true"
-            />
-            <p className="mt-2 text-xs text-muted-foreground">
-              Ask anything about your documents. Answers stream with citations
-              and a live entity graph when relevant.
-            </p>
-          </div>
-        )}
-
-        {/* Skeleton while streaming has started but no meta + no tokens arrived */}
-        {pending && !response && !stream.strict && (
-          <div
-            className="space-y-3 rounded-xl border border-border/60 bg-background/50 px-5 py-4"
-            data-testid="chat-answer-skeleton"
-          >
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-11/12" />
-            <Skeleton className="h-3 w-3/4" />
-          </div>
-        )}
-
-        {/* Strict mode buffers rendering: tokens accumulate hidden until
-            `done` decides between the answer and a refusal. */}
-        {pending && stream.strict && (
-          <div
-            className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/50 px-5 py-4 text-sm text-muted-foreground"
-            data-testid="chat-verifying"
-          >
-            <Loader2
-              className="size-4 animate-spin text-[color:var(--brand)]"
-              aria-hidden="true"
-            />
-            Generating &amp; verifying answer…
-          </div>
-        )}
-
-        {response && !(pending && stream.strict) && (
-          <Answer response={response} streaming={pending} />
-        )}
       </CardContent>
     </Card>
+  );
+}
+
+function QuestionBubble({ question }: { question: string }) {
+  return (
+    <div className="flex justify-end" data-testid="chat-question">
+      <p className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-sm bg-[color:var(--brand)]/10 px-4 py-2.5 text-sm leading-relaxed">
+        {question}
+      </p>
+    </div>
   );
 }
 
@@ -300,367 +421,4 @@ function streamToResponse(stream: StreamState): ChatResponse | null {
     strict_refusal: stream.strictRefusal != null,
     intent: meta?.intent,
   };
-}
-
-function Answer({
-  response,
-  streaming = false,
-}: {
-  response: ChatResponse;
-  streaming?: boolean;
-}) {
-  const { data: graphData, highlighted, hasGraph } = chatToGraphProps(response);
-
-  return (
-    <div className="space-y-5 pt-2" data-testid="chat-answer">
-      <div className="flex flex-wrap items-center gap-2">
-        {response.model && (
-          <Badge variant="outline" className="font-mono text-[10px]">
-            {response.model}
-          </Badge>
-        )}
-        {response.intent && response.intent !== "chat" && (
-          <IntentBadge intent={response.intent} />
-        )}
-        {response.used_context ? (
-          <Badge className="gap-1 bg-gradient-brand text-brand-foreground">
-            <Sparkles className="size-3" aria-hidden="true" />
-            used context
-          </Badge>
-        ) : (
-          <Badge variant="outline">no context</Badge>
-        )}
-        {response.used_graph && (
-          <Badge className="gap-1 bg-emerald-500/90 text-white hover:bg-emerald-500 dark:bg-emerald-500/80">
-            <Network className="size-3" aria-hidden="true" />
-            used graph
-          </Badge>
-        )}
-        {response.used_web && (
-          <Badge className="gap-1 bg-sky-500/90 text-white hover:bg-sky-500 dark:bg-sky-500/80">
-            <Globe className="size-3" aria-hidden="true" />
-            used web
-          </Badge>
-        )}
-        {response.verification && (
-          <VerificationBadge verification={response.verification} />
-        )}
-      </div>
-
-      {response.strict_refusal && (
-        <div
-          className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs"
-          data-testid="strict-refusal-notice"
-        >
-          <AlertTriangle
-            className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
-            aria-hidden="true"
-          />
-          <span>
-            Strict mode withheld this answer — its groundedness score fell
-            below the required threshold. The verification badge above shows
-            the actual score.
-          </span>
-        </div>
-      )}
-
-      <div className="rounded-xl border border-border/60 bg-background/50 px-4 py-4 text-sm leading-relaxed break-words sm:px-5">
-        <div
-          className="prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted/60 prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none"
-          data-testid="chat-answer-text"
-        >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {response.answer}
-          </ReactMarkdown>
-          {streaming && (
-            <span
-              aria-hidden="true"
-              className="ml-0.5 inline-block h-3.5 w-1.5 -translate-y-px animate-pulse bg-[color:var(--brand)]"
-              data-testid="streaming-cursor"
-            />
-          )}
-        </div>
-      </div>
-
-      {response.verification &&
-        response.verification.verdict !== "skipped" &&
-        response.verification.unsupported_claims.length > 0 && (
-          <UnsupportedClaimsPanel verification={response.verification} />
-        )}
-
-      {/* Citations cite the withheld answer — hide them when refused. */}
-      {!response.strict_refusal && response.citations.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Citations
-          </p>
-          <ol className="space-y-2">
-            {response.citations.map((c, i) => (
-              <CitationItem key={c.chunk_id} index={i + 1} citation={c} />
-            ))}
-          </ol>
-        </div>
-      )}
-
-      {!response.strict_refusal &&
-        (response.web_citations?.length ?? 0) > 0 && (
-          <div className="space-y-2">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Web sources
-            </p>
-            <ol className="space-y-2">
-              {response.web_citations!.map((w, i) => (
-                <WebCitationItem key={w.url} index={i + 1} citation={w} />
-              ))}
-            </ol>
-          </div>
-        )}
-
-      {hasGraph && (
-        <div className="space-y-2" data-testid="inline-graph">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Knowledge graph
-            </p>
-            <Link
-              href="/dashboard/graph"
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-[color:var(--brand)]"
-              data-testid="inline-graph-explore-link"
-            >
-              Explore full graph
-              <ArrowUpRight className="size-3" aria-hidden="true" />
-            </Link>
-          </div>
-          <div className="h-[40svh] min-h-[260px] overflow-hidden rounded-xl border border-border/60 bg-background/30 sm:h-[45svh]">
-            <KnowledgeGraph
-              nodes={graphData.nodes}
-              links={graphData.links}
-              highlighted={highlighted}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Highlighted nodes are entities the answer mentions by name.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function IntentBadge({ intent }: { intent: string }) {
-  const label =
-    intent === "summarize"
-      ? "summary route"
-      : intent === "explain_graph"
-        ? "graph route"
-        : intent;
-  const Icon =
-    intent === "summarize" ? ScrollText : intent === "explain_graph" ? Network : Route;
-  return (
-    <Badge
-      variant="outline"
-      className="gap-1 border-[color:var(--brand)]/40 text-[color:var(--brand)]"
-      title={`Router classified this query as "${intent}"`}
-      data-testid="intent-badge"
-    >
-      <Icon className="size-3" aria-hidden="true" />
-      {label}
-    </Badge>
-  );
-}
-
-const VERDICT_STYLES: Record<
-  VerificationVerdict,
-  { label: string; className: string; Icon: typeof ShieldCheck }
-> = {
-  verified: {
-    label: "verified",
-    className: "bg-emerald-500/90 text-white hover:bg-emerald-500",
-    Icon: ShieldCheck,
-  },
-  partial: {
-    label: "partial support",
-    className: "bg-amber-500/90 text-white hover:bg-amber-500",
-    Icon: ShieldAlert,
-  },
-  unsupported: {
-    label: "unsupported",
-    className: "bg-red-500/90 text-white hover:bg-red-500",
-    Icon: ShieldAlert,
-  },
-  skipped: {
-    label: "not verified",
-    className: "",
-    Icon: ShieldQuestion,
-  },
-};
-
-function VerificationBadge({
-  verification,
-}: {
-  verification: ChatVerification;
-}) {
-  const v = verification.verdict;
-  const style = VERDICT_STYLES[v];
-  const Icon = style.Icon;
-  const pct = Math.round(verification.groundedness_score * 100);
-  const counts =
-    verification.total_claims > 0
-      ? ` · ${verification.supported_claims}/${verification.total_claims}`
-      : "";
-  const title =
-    v === "skipped"
-      ? verification.skip_reason || "verification skipped"
-      : `groundedness ${pct}%${counts}`;
-
-  if (v === "skipped") {
-    return (
-      <Badge
-        variant="outline"
-        className="gap-1 text-muted-foreground"
-        title={title}
-        data-testid="verification-badge"
-      >
-        <Icon className="size-3" aria-hidden="true" />
-        not verified
-      </Badge>
-    );
-  }
-
-  return (
-    <Badge
-      className={"gap-1 " + style.className}
-      title={title}
-      data-testid="verification-badge"
-    >
-      <Icon className="size-3" aria-hidden="true" />
-      {style.label}
-      {verification.total_claims > 0 && (
-        <span className="ml-0.5 opacity-90">· {pct}%</span>
-      )}
-    </Badge>
-  );
-}
-
-function UnsupportedClaimsPanel({
-  verification,
-}: {
-  verification: ChatVerification;
-}) {
-  const [open, setOpen] = useState(false);
-  const count = verification.unsupported_claims.length;
-
-  return (
-    <div
-      className="rounded-xl border border-amber-500/40 bg-amber-500/5"
-      data-testid="unsupported-claims-panel"
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-xs font-medium"
-        aria-expanded={open}
-      >
-        <span className="flex items-center gap-2">
-          <AlertTriangle
-            className="size-3.5 text-amber-600 dark:text-amber-400"
-            aria-hidden="true"
-          />
-          <span>
-            {count} unsupported claim{count === 1 ? "" : "s"}
-          </span>
-          <span className="font-normal text-muted-foreground">
-            (not entailed by the cited context)
-          </span>
-        </span>
-        {open ? (
-          <ChevronUp className="size-3.5 text-muted-foreground" aria-hidden="true" />
-        ) : (
-          <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
-        )}
-      </button>
-      {open && (
-        <ul
-          className="space-y-1.5 border-t border-amber-500/30 px-4 py-3 text-xs text-foreground/90"
-          data-testid="unsupported-claims-list"
-        >
-          {verification.unsupported_claims.map((c, i) => (
-            <li key={`${i}-${c.slice(0, 24)}`} className="flex gap-2">
-              <CheckCircle2
-                className="mt-0.5 size-3 shrink-0 rotate-180 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <span>{c}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function WebCitationItem({
-  index,
-  citation,
-}: {
-  index: number;
-  citation: WebCitation;
-}) {
-  let host = "";
-  try {
-    host = new URL(citation.url).hostname;
-  } catch {
-    host = citation.url;
-  }
-  return (
-    <li
-      className="rounded-lg border border-border/60 bg-background/50 px-3 py-2.5 text-xs"
-      data-testid="web-citation-item"
-    >
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <a
-          href={citation.url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex min-w-0 items-center gap-1 font-medium text-foreground/90 transition-colors hover:text-[color:var(--brand)]"
-        >
-          <span className="font-mono text-[color:var(--brand)]">
-            [W{index}]
-          </span>
-          <span className="truncate">{citation.title || host}</span>
-          <ArrowUpRight className="size-3 shrink-0" aria-hidden="true" />
-        </a>
-        <span className="shrink-0 text-muted-foreground">{host}</span>
-      </div>
-      {citation.snippet && (
-        <p className="text-foreground/80">{citation.snippet}</p>
-      )}
-    </li>
-  );
-}
-
-function CitationItem({
-  index,
-  citation,
-}: {
-  index: number;
-  citation: ChatCitation;
-}) {
-  return (
-    <li
-      className="rounded-lg border border-border/60 bg-background/50 px-3 py-2.5 text-xs"
-      data-testid="citation-item"
-    >
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="font-mono text-muted-foreground">
-          <span className="text-[color:var(--brand)]">[{index}]</span> doc{" "}
-          {citation.document_id.slice(0, 8)}… · chunk {citation.chunk_index}
-        </span>
-        <span className="text-muted-foreground">
-          score {citation.score.toFixed(3)}
-        </span>
-      </div>
-      <p className="text-foreground/90">{citation.text_preview}</p>
-    </li>
-  );
 }

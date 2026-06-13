@@ -21,6 +21,7 @@ vi.mock("@/components/graph/knowledge-graph", () => ({
 
 import { ChatPanel } from "./chat-panel";
 import { useAuthStore } from "@/store/auth";
+import { useChatSessionStore } from "@/store/chat-session";
 
 function renderWithQuery(ui: ReactNode) {
   const queryClient = new QueryClient({
@@ -40,6 +41,7 @@ type AnyBody = Record<string, unknown>;
 function sseFromBody(body: AnyBody): Response {
   const encoder = new TextEncoder();
   const meta = {
+    chat_id: body.chat_id ?? "chat-test",
     intent: body.intent ?? "chat",
     used_context: !!body.used_context,
     used_graph: !!body.used_graph,
@@ -111,6 +113,8 @@ describe("<ChatPanel />", () => {
       { id: "u-1", email: "a@b.com" },
       "tok-abc",
     );
+    // The session store is module-global — reset between tests.
+    useChatSessionStore.getState().reset();
   });
 
   afterEach(() => {
@@ -813,6 +817,235 @@ describe("<ChatPanel />", () => {
         expect(strong!.textContent).toBe("First");
         expect(answer.querySelectorAll("li")).toHaveLength(2);
       });
+    });
+  });
+
+  describe("session thread", () => {
+    it("two sends render two turns and the second request carries chat_id", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          sseFromBody({ ...SUCCESS_BODY, answer: "first answer", chat_id: "chat-42" }),
+        )
+        .mockResolvedValueOnce(
+          sseFromBody({ ...SUCCESS_BODY, answer: "second answer", chat_id: "chat-42" }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "q one");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+      await screen.findByText(/first answer/i);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "q two");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+      await screen.findByText(/second answer/i);
+
+      // Both turns visible in the thread.
+      expect(screen.getAllByTestId("chat-turn")).toHaveLength(2);
+      expect(screen.getByText(/first answer/i)).toBeInTheDocument();
+      expect(screen.getAllByTestId("chat-question")).toHaveLength(2);
+
+      // First request had null chat_id; second carries the id from meta.
+      const body1 = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+      const body2 = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+      expect(body1.chat_id).toBeNull();
+      expect(body2.chat_id).toBe("chat-42");
+    });
+
+    it("New chat clears the thread and resets the session", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(sseFromBody({ ...SUCCESS_BODY, chat_id: "chat-9" })),
+      );
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "hello");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+      await screen.findByTestId("chat-turn");
+
+      await userEvent.click(screen.getByTestId("chat-new"));
+
+      expect(screen.queryByTestId("chat-turn")).not.toBeInTheDocument();
+      expect(screen.getByTestId("chat-empty")).toBeInTheDocument();
+      expect(useChatSessionStore.getState().chatId).toBeNull();
+    });
+
+    it("an errored turn is not added to the thread and the question is restored", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ detail: "rate limited" }), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "doomed question");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await screen.findByRole("alert");
+      expect(screen.queryByTestId("chat-turn")).not.toBeInTheDocument();
+      expect(useChatSessionStore.getState().turns).toHaveLength(0);
+      // Question restored for retry.
+      expect(screen.getByLabelText(/question/i)).toHaveValue("doomed question");
+    });
+
+    it("first-turn mid-stream error clears the just-adopted chat_id (avoids 404 retry loop)", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation(() => {
+          // SSE that emits meta with a chat_id then an error event.
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              const meta = {
+                chat_id: "doomed-chat",
+                intent: "chat",
+                used_context: false,
+                used_graph: false,
+                used_web: false,
+                model: "m",
+                citations: [],
+                entities_used: [],
+                web_citations: [],
+                strict: false,
+              };
+              controller.enqueue(
+                encoder.encode(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`),
+              );
+              controller.enqueue(
+                encoder.encode(
+                  `event: error\ndata: ${JSON.stringify({ status: 429, detail: "rate" })}\n\n`,
+                ),
+              );
+              controller.close();
+            },
+          });
+          return Promise.resolve(
+            new Response(stream, {
+              status: 200,
+              headers: { "Content-Type": "text/event-stream" },
+            }),
+          );
+        }),
+      );
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "first turn");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await screen.findByRole("alert");
+      // The cleanup-failed-first-turn protection: stored chat_id is dropped.
+      expect(useChatSessionStore.getState().chatId).toBeNull();
+    });
+
+    it("later-turn mid-stream error keeps the chat_id (the chat still exists)", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          // Turn 1 succeeds, establishes chat_id.
+          .mockResolvedValueOnce(
+            sseFromBody({ ...SUCCESS_BODY, chat_id: "chat-keepme" }),
+          )
+          // Turn 2 fails.
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify({ detail: "rate" }), {
+              status: 429,
+              headers: { "Content-Type": "application/json" },
+            }),
+          ),
+      );
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "turn one");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+      await screen.findByTestId("chat-turn");
+
+      await userEvent.type(screen.getByLabelText(/question/i), "turn two");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+      await screen.findByRole("alert");
+
+      expect(useChatSessionStore.getState().chatId).toBe("chat-keepme");
+    });
+
+    it("partial answer stays visible after a mid-stream error", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation(() => {
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              const meta = {
+                chat_id: "chat-x",
+                intent: "chat",
+                used_context: true,
+                used_graph: false,
+                used_web: false,
+                model: "m",
+                citations: [],
+                entities_used: [],
+                web_citations: [],
+                strict: false,
+              };
+              controller.enqueue(
+                encoder.encode(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`),
+              );
+              controller.enqueue(
+                encoder.encode(
+                  `event: token\ndata: ${JSON.stringify({ text: "Partial visible " })}\n\n`,
+                ),
+              );
+              controller.enqueue(
+                encoder.encode(
+                  `event: token\ndata: ${JSON.stringify({ text: "answer." })}\n\n`,
+                ),
+              );
+              controller.enqueue(
+                encoder.encode(
+                  `event: error\ndata: ${JSON.stringify({ status: 502, detail: "upstream" })}\n\n`,
+                ),
+              );
+              controller.close();
+            },
+          });
+          return Promise.resolve(
+            new Response(stream, {
+              status: 200,
+              headers: { "Content-Type": "text/event-stream" },
+            }),
+          );
+        }),
+      );
+      renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "q");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      // Error alert + the partial answer both visible.
+      await screen.findByRole("alert");
+      expect(screen.getByText(/partial visible answer/i)).toBeInTheDocument();
+    });
+
+    it("thread survives unmount/remount (client-side navigation)", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(sseFromBody({ ...SUCCESS_BODY, chat_id: "chat-7" })),
+      );
+      const first = renderWithQuery(<ChatPanel />);
+
+      await userEvent.type(screen.getByLabelText(/question/i), "persists?");
+      await userEvent.click(screen.getByRole("button", { name: /send/i }));
+      await screen.findByTestId("chat-turn");
+
+      first.unmount();
+      renderWithQuery(<ChatPanel />);
+
+      expect(screen.getByTestId("chat-turn")).toBeInTheDocument();
+      expect(useChatSessionStore.getState().chatId).toBe("chat-7");
     });
   });
 });
