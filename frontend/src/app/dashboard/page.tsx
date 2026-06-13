@@ -10,6 +10,7 @@ import { DocumentUploader } from "@/components/documents/document-uploader";
 import { AppShell } from "@/components/layout/app-shell";
 import { listDocuments } from "@/lib/documents-api";
 import { useAuthStore } from "@/store/auth";
+import { useChatSessionStore } from "@/store/chat-session";
 
 export default function DashboardPage() {
   return (
@@ -24,6 +25,10 @@ export default function DashboardPage() {
 function DashboardInner() {
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
+  // Hide the welcome banner once a chat is in progress so the thread gets the room.
+  const hasChatActivity = useChatSessionStore(
+    (s) => s.turns.length > 0 || s.chatId !== null,
+  );
 
   const { data: docs } = useQuery({
     queryKey: ["documents"],
@@ -34,31 +39,33 @@ function DashboardInner() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-10">
-      <header className="flex flex-col gap-2">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Workspace
-        </p>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          Welcome back
-          {(() => {
-            const display =
-              user?.firstName?.trim() ||
-              (user?.email ? user.email.split("@")[0] : null);
-            return display ? (
-              <>
-                ,{" "}
-                <span className="text-gradient-brand">{display}</span>
-              </>
-            ) : null;
-          })()}
-        </h1>
-        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Upload anything readable: PDFs, images, audio, video, text. Then
-          chat over it with citations and a live knowledge graph.
-        </p>
-      </header>
+      {!hasChatActivity && (
+        <header className="flex flex-col gap-2">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Workspace
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            Welcome back
+            {(() => {
+              const display =
+                user?.firstName?.trim() ||
+                (user?.email ? user.email.split("@")[0] : null);
+              return display ? (
+                <>
+                  ,{" "}
+                  <span className="text-gradient-brand">{display}</span>
+                </>
+              ) : null;
+            })()}
+          </h1>
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            Upload anything readable: PDFs, images, audio, video, text. Then
+            chat over it with citations and a live knowledge graph.
+          </p>
+        </header>
+      )}
 
-      {noDocsYet && (
+      {!hasChatActivity && noDocsYet && (
         <div
           className="flex items-start gap-3 rounded-xl border border-[color:var(--brand)]/30 bg-[color:var(--brand)]/5 px-4 py-3 text-sm"
           data-testid="no-documents-nudge"

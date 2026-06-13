@@ -8,14 +8,13 @@ import {
   Plus,
   SendHorizontal,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Answer } from "@/components/chat/answer";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -77,6 +76,7 @@ const INITIAL_STREAM: StreamState = {
 };
 
 const STICK_TO_BOTTOM_PX = 80;
+const TEXTAREA_MAX_LINES = 5;
 
 export function ChatPanel() {
   const token = useAuthStore((s) => s.token);
@@ -95,6 +95,23 @@ export function ChatPanel() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const cs = getComputedStyle(el);
+    const lineHeight = parseFloat(cs.lineHeight) || 20;
+    const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const max = lineHeight * TEXTAREA_MAX_LINES + padY;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  }, []);
+
+  // Re-fit whenever the value changes (covers programmatic resets too).
+  useEffect(() => {
+    resizeTextarea();
+  }, [query, resizeTextarea]);
 
   // Stick to bottom only if the user was already there — don't yank them up.
   useEffect(() => {
@@ -212,21 +229,14 @@ export function ChatPanel() {
   return (
     <Card className="glass flex w-full flex-col py-6">
       <CardHeader className="px-4 pb-2 sm:px-6">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <MessageSquareText
-                className="size-4 text-[color:var(--brand)]"
-                aria-hidden="true"
-              />
-              Ask your documents
-            </CardTitle>
-            <CardDescription className="mt-1">
-              Retrieval-augmented chat over your uploaded text, PDFs, images,
-              audio, and video. Follow-ups see earlier turns; a hard refresh
-              starts a new chat.
-            </CardDescription>
-          </div>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquareText
+              className="size-4 text-[color:var(--brand)]"
+              aria-hidden="true"
+            />
+            Current chat
+          </CardTitle>
           {hasThread && (
             <Button
               variant="ghost"
@@ -326,15 +336,13 @@ export function ChatPanel() {
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="space-y-2.5">
-          <Label
-            htmlFor="chat-query"
-            className="text-xs uppercase text-muted-foreground"
-          >
+        <form onSubmit={onSubmit}>
+          <Label htmlFor="chat-query" className="sr-only">
             Question
           </Label>
-          <div className="relative">
+          <div className="rounded-xl border border-input bg-background/50 shadow-sm transition-colors focus-within:border-[color:var(--brand)] focus-within:ring-2 focus-within:ring-[color:var(--brand)]/30">
             <textarea
+              ref={textareaRef}
               id="chat-query"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -345,55 +353,54 @@ export function ChatPanel() {
                   e.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder="What does the document say about…? (Enter to send, Shift+Enter for a new line)"
-              rows={3}
-              className="w-full resize-none rounded-xl border border-input bg-background/50 px-4 py-3.5 pb-12 pr-14 text-sm leading-relaxed shadow-sm transition-colors placeholder:text-muted-foreground/70 focus-visible:border-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/30 sm:pr-36"
+              placeholder="Ask anything. Enter to send, Shift+Enter for a new line."
+              rows={1}
+              className="block w-full resize-none overflow-y-auto rounded-t-xl border-0 bg-transparent px-4 py-3 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus:outline-none"
               required
             />
-            <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
-              <ToggleChip
-                pressed={useRag}
-                onPressedChange={setUseRag}
-                disabled={pending}
-                title="Answer from your uploaded documents"
-                data-testid="toggle-rag"
+            <div className="flex items-center justify-between gap-2 border-t border-border/40 px-2.5 py-2">
+              <div className="flex items-center gap-1.5">
+                <ToggleChip
+                  pressed={useRag}
+                  onPressedChange={setUseRag}
+                  disabled={pending}
+                  title="Answer from your uploaded documents"
+                  data-testid="toggle-rag"
+                >
+                  <Database className="size-3" aria-hidden="true" />
+                  RAG
+                </ToggleChip>
+                <ToggleChip
+                  pressed={useWeb}
+                  onPressedChange={setUseWeb}
+                  disabled={pending}
+                  title="Augment with fresh web search results"
+                  data-testid="toggle-web"
+                >
+                  <Globe className="size-3" aria-hidden="true" />
+                  Web
+                </ToggleChip>
+              </div>
+              <Button
+                type="submit"
+                disabled={pending || !query.trim()}
+                aria-label={pending ? "Thinking" : "Send"}
+                className="bg-gradient-brand text-brand-foreground glow-brand px-3 sm:px-4"
+                size="sm"
               >
-                <Database className="size-3" aria-hidden="true" />
-                RAG
-              </ToggleChip>
-              <ToggleChip
-                pressed={useWeb}
-                onPressedChange={setUseWeb}
-                disabled={pending}
-                title="Augment with fresh web search results"
-                data-testid="toggle-web"
-              >
-                <Globe className="size-3" aria-hidden="true" />
-                Web
-              </ToggleChip>
+                {pending ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                    <span className="hidden sm:inline">Thinking…</span>
+                  </>
+                ) : (
+                  <>
+                    <SendHorizontal className="size-3.5" aria-hidden="true" />
+                    <span className="hidden sm:inline">Send</span>
+                  </>
+                )}
+              </Button>
             </div>
-            <Button
-              type="submit"
-              disabled={pending || !query.trim()}
-              aria-label={pending ? "Thinking" : "Send"}
-              className="absolute bottom-3 right-3 bg-gradient-brand text-brand-foreground glow-brand px-3 sm:px-4"
-              size="sm"
-            >
-              {pending ? (
-                <>
-                  <Loader2
-                    className="size-3.5 animate-spin"
-                    aria-hidden="true"
-                  />
-                  <span className="hidden sm:inline">Thinking…</span>
-                </>
-              ) : (
-                <>
-                  <SendHorizontal className="size-3.5" aria-hidden="true" />
-                  <span className="hidden sm:inline">Send</span>
-                </>
-              )}
-            </Button>
           </div>
         </form>
       </CardContent>

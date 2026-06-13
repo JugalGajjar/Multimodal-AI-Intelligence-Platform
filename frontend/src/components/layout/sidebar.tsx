@@ -1,12 +1,12 @@
 "use client";
 
 import {
+  BookOpen,
   Files,
   History,
   LayoutDashboard,
   Network,
   Settings,
-  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -97,16 +97,24 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-sidebar-border px-5 py-5">
-        <div className="flex items-start gap-2.5 rounded-lg bg-sidebar-accent/40 p-3.5 text-xs leading-relaxed text-sidebar-foreground/80">
-          <Sparkles
+        <Link
+          href="/dashboard/about"
+          data-testid="nav-about"
+          className="group flex items-start gap-2.5 rounded-lg bg-sidebar-accent/40 p-3.5 text-xs leading-relaxed text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+        >
+          <BookOpen
             aria-hidden="true"
             className="mt-0.5 size-3.5 shrink-0 text-[color:var(--accent-violet)]"
           />
           <span>
-            Multimodal RAG with a live knowledge graph extracted from your
-            uploads.
+            <span className="block font-medium text-sidebar-foreground">
+              About MMAP
+            </span>
+            <span className="block text-sidebar-foreground/70">
+              What it is, why it exists, and how to get the most out of it.
+            </span>
           </span>
-        </div>
+        </Link>
       </div>
     </aside>
   );
