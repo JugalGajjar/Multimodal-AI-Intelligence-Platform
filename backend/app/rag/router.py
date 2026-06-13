@@ -129,14 +129,15 @@ async def chat(
     current_user: CurrentUserDep,
     _db: DbDep,
 ) -> ChatResponse:
-    _require_providers(payload)
-
-    # chat_id is /chat/stream-only — surface the mismatch instead of dropping it.
+    # Validate request before checking provider availability — a 400 for bad
+    # input shouldn't be masked by a 503 when the provider key is missing.
     if payload.chat_id is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="chat_id is only supported on /chat/stream.",
         )
+
+    _require_providers(payload)
 
     try:
         state = await run_chat(
