@@ -41,6 +41,10 @@ def _stream_turn(http, auth, body: dict) -> dict:
     """POST /chat/stream and parse SSE events into {event: data} (last wins)."""
     events: dict = {}
     with http.stream("POST", "/chat/stream", headers=auth, json=body) as resp:
+        if resp.status_code == 503:
+            # No Groq key on this stack (CI). The full chat flow needs upstream
+            # LLMs; skip rather than fail.
+            pytest.skip("Groq not configured on the backend")
         assert resp.status_code == 200
         event_name = ""
         for line in resp.iter_lines():
