@@ -161,7 +161,17 @@ export function ChatPanel() {
             acc.status = "done";
             acc.verification = done.verification;
             acc.strictRefusal = done.strict_refusal ?? null;
-            sync();
+            // Move the turn into the thread immediately — the backend keeps
+            // the body open while it runs post-done persistence + summary
+            // (Groq), which can take 20-30s.
+            const response = streamToResponse(acc);
+            if (response) {
+              addTurn(question, response);
+              setStream(INITIAL_STREAM);
+              setCurrentQuestion("");
+            } else {
+              sync();
+            }
           },
           onError: (err) => {
             acc.status = "error";
@@ -175,20 +185,16 @@ export function ChatPanel() {
           },
         },
       );
-      // Stream ended without `done` — treat as complete.
+      // Stream ended without `done` — finalize whatever we got.
       if (acc.status === "streaming") {
         acc.status = "done";
-        sync();
-      }
-
-      if (acc.status === "done") {
         const response = streamToResponse(acc);
         if (response) {
           addTurn(question, response);
           setStream(INITIAL_STREAM);
           setCurrentQuestion("");
         }
-      } else {
+      } else if (acc.status === "error") {
         // Restore the question so the user can retry — backend persists nothing.
         setQuery(question);
       }

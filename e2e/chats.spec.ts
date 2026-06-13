@@ -63,7 +63,8 @@ test.describe("Chat history", () => {
     await page.getByRole("button", { name: /transcript/i }).first().click();
     const transcript = page.getByTestId("chat-transcript");
     await expect(transcript).toBeVisible();
-    await expect(transcript.getByText(new RegExp(codeword))).toBeVisible();
+    // The model may echo the codeword in its answer, so use first().
+    await expect(transcript.getByText(new RegExp(codeword)).first()).toBeVisible();
     await expect(transcript.locator("textarea, input")).toHaveCount(0);
 
     // Delete.
