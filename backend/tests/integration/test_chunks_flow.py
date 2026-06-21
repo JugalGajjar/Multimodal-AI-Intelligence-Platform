@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 
 BASE_URL = "http://127.0.0.1:8000/api/v1"
 QDRANT_URL = "http://127.0.0.1:6333"
-COLLECTION = "mmap_chunks"
+COLLECTION = "mmap_chunks_v2"
 
 LONG_TEXT = (
     "Embeddings test. " + "The quick brown fox jumps over the lazy dog. " * 50 + "End."

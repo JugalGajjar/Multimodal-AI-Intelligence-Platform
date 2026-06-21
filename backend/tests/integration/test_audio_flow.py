@@ -132,7 +132,7 @@ def test_audio_chunks_land_in_qdrant_with_user_isolation(http, auth, sample_wav_
     # Qdrant should contain points tagged with our user_id.
     me_id = http.get("/auth/me", headers=auth).json()["id"]
     r = httpx.post(
-        "http://127.0.0.1:6333/collections/mmap_chunks/points/scroll",
+        "http://127.0.0.1:6333/collections/mmap_chunks_v2/points/scroll",
         json={
             "limit": 100,
             "with_payload": True,

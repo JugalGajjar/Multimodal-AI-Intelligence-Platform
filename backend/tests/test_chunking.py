@@ -87,3 +87,31 @@ class TestSplitting:
         assert DEFAULT_CHUNK_SIZE == 500
         assert DEFAULT_CHUNK_OVERLAP == 50
         assert DEFAULT_CHUNK_OVERLAP < DEFAULT_CHUNK_SIZE
+
+
+class TestIsMeaningful:
+    def test_rejects_tiny_fragments(self):
+        from app.workers.chunking import MIN_MEANINGFUL_ALNUM_CHARS, is_meaningful
+
+        # The actual noise from the bug report.
+        assert not is_meaningful("rs")
+        assert not is_meaningful("rsal).")
+        assert not is_meaningful("rmat [1")
+        # Just under the bar.
+        assert not is_meaningful("a" * (MIN_MEANINGFUL_ALNUM_CHARS - 1))
+
+    def test_accepts_real_prose(self):
+        from app.workers.chunking import is_meaningful
+
+        text = (
+            "RSAT trains small language models to produce step-by-step reasoning "
+            "over tables where each step cites the cells it depends on."
+        )
+        assert is_meaningful(text)
+
+    def test_punctuation_doesnt_count_toward_min(self):
+        from app.workers.chunking import MIN_MEANINGFUL_ALNUM_CHARS, is_meaningful
+
+        # All punctuation, no alphanumerics — would pass a naive len() check
+        # but not a content check.
+        assert not is_meaningful("." * (MIN_MEANINGFUL_ALNUM_CHARS * 3))

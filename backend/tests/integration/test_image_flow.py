@@ -123,7 +123,7 @@ def test_image_chunks_land_in_qdrant(http, auth, sample_png_bytes):
 
     me_id = http.get("/auth/me", headers=auth).json()["id"]
     r = httpx.post(
-        "http://127.0.0.1:6333/collections/mmap_chunks/points/scroll",
+        "http://127.0.0.1:6333/collections/mmap_chunks_v2/points/scroll",
         json={
             "limit": 100,
             "with_payload": True,
