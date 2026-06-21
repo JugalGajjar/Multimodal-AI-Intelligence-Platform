@@ -67,8 +67,18 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix="/api/v1")
 
-    # FastAPI instrumentation creates spans for every route handler.
-    FastAPIInstrumentor.instrument_app(app, excluded_urls="/api/v1/metrics,/api/v1/health")
+    # FastAPI instrumentation creates spans for every route handler. Gate
+    # on otel_enabled so tests / CI (OTEL_ENABLED=false) skip the wrapper.
+    # Newer FastAPI wraps included routes in `_IncludedRouter` objects with
+    # no `.path` attr; the OTel asgi middleware crashes on every OPTIONS
+    # preflight when it walks `app.routes`, which 500s the CORS preflight
+    # and hangs every browser-originated fetch. Gating keeps prod OTel
+    # intact while unblocking CI until the upstream instrumentation handles
+    # the new wrapper.
+    if settings.otel_enabled:
+        FastAPIInstrumentor.instrument_app(
+            app, excluded_urls="/api/v1/metrics,/api/v1/health"
+        )
     return app
 
 
