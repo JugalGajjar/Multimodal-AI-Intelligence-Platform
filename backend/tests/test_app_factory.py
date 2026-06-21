@@ -14,22 +14,13 @@ def test_create_app_returns_fastapi_instance():
 
 
 def test_create_app_mounts_v1_router():
+    # Use the OpenAPI spec (public, stable surface) instead of walking
+    # `app.routes` — newer FastAPI hides included routes behind a wrapper
+    # that exposes neither `.path` nor a recursible `.routes`.
     app = create_app()
-    # Newer FastAPI wraps included routers in `_IncludedRouter` objects that
-    # don't expose `.path` directly; recurse into nested `.routes` to cover
-    # both shapes.
-    paths: set[str] = set()
-    stack = list(app.routes)
-    while stack:
-        route = stack.pop()
-        path = getattr(route, "path", None)
-        if isinstance(path, str):
-            paths.add(path)
-        nested = getattr(route, "routes", None)
-        if nested:
-            stack.extend(nested)
+    spec = app.openapi()
 
-    assert "/api/v1/health" in paths
+    assert "/api/v1/health" in spec.get("paths", {})
 
 
 def test_create_app_registers_cors_middleware():
