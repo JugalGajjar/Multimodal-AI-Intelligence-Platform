@@ -23,6 +23,7 @@ from app.chats.schemas import (
 from app.chats.service import get_owned_chat
 from app.db.session import get_db
 from app.rag.schemas import VerificationInfo
+from app.rag.snippet import snippet as _snippet
 
 log = logging.getLogger("mmap.chats")
 
@@ -36,25 +37,6 @@ SNIPPET_WIDTH = 160
 
 def _escape_like(q: str) -> str:
     return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-def _snippet(text: str, q: str, *, width: int = SNIPPET_WIDTH) -> str:
-    """Window of `width` chars centered on the first case-insensitive match."""
-    text = " ".join(text.split())
-    if len(text) <= width:
-        return text
-    idx = text.lower().find(q.lower())
-    if idx < 0:
-        return text[:width].rstrip() + "…"
-    start = max(0, idx + len(q) // 2 - width // 2)
-    end = min(len(text), start + width)
-    start = max(0, end - width)
-    out = text[start:end].strip()
-    if start > 0:
-        out = "…" + out
-    if end < len(text):
-        out = out + "…"
-    return out
 
 
 def _list_item(chat: Chat, message_count: int) -> ChatListItem:
@@ -141,7 +123,7 @@ async def search_chats(
         items.append(
             ChatSearchItem(
                 **_list_item(chat, count).model_dump(),
-                snippet=_snippet(matched_text, q),
+                snippet=_snippet(matched_text, q, width=SNIPPET_WIDTH),
                 match_source=source,  # type: ignore[arg-type]
             )
         )

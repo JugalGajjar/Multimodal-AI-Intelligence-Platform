@@ -8,10 +8,15 @@ from qdrant_client.http import models as qmodels
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.core.config import settings
+from app.rag.sparse import SPARSE_VECTOR_NAME
 
 log = logging.getLogger(__name__)
 
-COLLECTION_NAME = "mmap_chunks"
+# v2 = named dense + BM25 sparse for hybrid retrieval. v1 (`mmap_chunks`)
+# used unnamed vectors; existing docs must be reindexed against this
+# collection.
+COLLECTION_NAME = "mmap_chunks_v2"
+DENSE_VECTOR_NAME = "dense"
 VECTOR_SIZE = 384  # BAAI/bge-small-en-v1.5
 
 # Qdrant Cloud refuses payload filters without an index. Self-hosted is
@@ -38,10 +43,17 @@ def ensure_collection() -> None:
     if COLLECTION_NAME not in existing:
         client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=qmodels.VectorParams(
-                size=VECTOR_SIZE,
-                distance=qmodels.Distance.COSINE,
-            ),
+            vectors_config={
+                DENSE_VECTOR_NAME: qmodels.VectorParams(
+                    size=VECTOR_SIZE,
+                    distance=qmodels.Distance.COSINE,
+                ),
+            },
+            sparse_vectors_config={
+                SPARSE_VECTOR_NAME: qmodels.SparseVectorParams(
+                    index=qmodels.SparseIndexParams(on_disk=False),
+                ),
+            },
         )
 
     # Idempotent — Qdrant returns a benign error if the index already exists.

@@ -19,7 +19,7 @@ log = logging.getLogger("mmap.worker")
 async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
     # OCR → chunk → embed → Qdrant → graph → summary.
     from app.embeddings import embed_texts
-    from app.workers.chunking import chunk_text
+    from app.workers.chunking import chunk_text, is_meaningful
     from app.workers.ocr.pipeline import extract_text_from_bytes
 
     async with async_session_maker() as db:
@@ -41,8 +41,22 @@ async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
             )
             doc.extracted_text = text
 
-            chunks = chunk_text(text) if text.strip() else []
-            log.info("doc=%s ocr=%d chars chunks=%d", document_id, len(text), len(chunks))
+            raw_chunks = chunk_text(text) if text.strip() else []
+            # Drop OCR/PDF noise that would otherwise pollute retrieval. Only
+            # filter when the doc produced more than one chunk — for short
+            # transcripts (audio, voice notes) we'd rather index a small chunk
+            # than nothing.
+            if len(raw_chunks) > 1:
+                chunks = [c for c in raw_chunks if is_meaningful(c.text)]
+            else:
+                chunks = raw_chunks
+            log.info(
+                "doc=%s ocr=%d chars chunks=%d (filtered %d noise)",
+                document_id,
+                len(text),
+                len(chunks),
+                len(raw_chunks) - len(chunks),
+            )
 
             chunk_rows: list[DocumentChunk] = []
             for c in chunks:
@@ -114,8 +128,10 @@ def _upsert_qdrant_points(
 ) -> None:
     from qdrant_client.http import models as qmodels
 
+    from app.rag.sparse import SPARSE_VECTOR_NAME, encode_passages
     from app.storage.qdrant_client import (
         COLLECTION_NAME,
+        DENSE_VECTOR_NAME,
         ensure_collection,
         get_qdrant_client,
     )
@@ -123,10 +139,15 @@ def _upsert_qdrant_points(
     ensure_collection()
     client = get_qdrant_client()
 
+    sparse_vectors = encode_passages([row.text for row in chunk_rows])
+
     points = [
         qmodels.PointStruct(
             id=str(row.id),
-            vector=vec,
+            vector={
+                DENSE_VECTOR_NAME: vec,
+                SPARSE_VECTOR_NAME: qmodels.SparseVector(indices=s_idx, values=s_val),
+            },
             payload={
                 "chunk_id": str(row.id),
                 "document_id": document_id,
@@ -135,7 +156,7 @@ def _upsert_qdrant_points(
                 "text": row.text,
             },
         )
-        for row, vec in zip(chunk_rows, vectors, strict=True)
+        for row, vec, (s_idx, s_val) in zip(chunk_rows, vectors, sparse_vectors, strict=True)
     ]
     client.upsert(collection_name=COLLECTION_NAME, points=points, wait=True)
 

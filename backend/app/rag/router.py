@@ -38,6 +38,7 @@ from app.rag.schemas import (
     VerificationInfo,
     WebCitation,
 )
+from app.rag.snippet import snippet as _snippet
 from app.rag.tavily import WebResult
 
 log = logging.getLogger("mmap.rag")
@@ -83,14 +84,14 @@ def _to_entities_used(facts: list[GraphFact]) -> list[EntityUsed]:
     ]
 
 
-def _citations_from_chunks(chunks: list) -> list[Citation]:
+def _citations_from_chunks(chunks: list, query: str) -> list[Citation]:
     return [
         Citation(
             chunk_id=UUID(c.chunk_id),
             document_id=UUID(c.document_id),
             chunk_index=c.chunk_index,
             score=c.score,
-            text_preview=(c.text[:240] + "…") if len(c.text) > 240 else c.text,
+            text_preview=_snippet(c.text, query, width=280),
         )
         for c in chunks
     ]
@@ -159,7 +160,7 @@ async def chat(
 
     return ChatResponse(
         answer=state.get("answer", ""),
-        citations=_citations_from_chunks(chunks),
+        citations=_citations_from_chunks(chunks, payload.query),
         entities_used=_to_entities_used(graph_facts),
         model=state.get("model", settings.groq_reasoning_model),
         used_context=bool(state.get("used_context")),
@@ -221,7 +222,9 @@ async def _stream_generator(
     web_results = state.get("web_results") or []
 
     intent = state.get("intent", "chat")
-    citations_json = [c.model_dump(mode="json") for c in _citations_from_chunks(chunks)]
+    citations_json = [
+        c.model_dump(mode="json") for c in _citations_from_chunks(chunks, payload.query)
+    ]
     entities_json = [e.model_dump() for e in _to_entities_used(graph_facts)]
     web_citations_json = [w.model_dump() for w in _web_citations(web_results)]
 

@@ -35,14 +35,20 @@ RUN pip install -e ".[dev]" \
         && pip install pytesseract pdf2image Pillow numpy)) \
     && rm -rf /usr/local/lib/python3.12/site-packages/app
 
-# Pre-bake the embedding model. Retry on HF 429s; FAIL the build if all
-# retries exhaust so the CI error is loud instead of producing an image
-# whose worker can't embed.
+# Pre-bake the three retrieval models (embedder, reranker, BM25 sparse).
+# Retry on HF 429s; FAIL the build if retries exhaust so the CI error is
+# loud instead of producing an image whose worker can't embed/rerank.
 ENV HF_HOME=/app/.cache/huggingface \
     XDG_CACHE_HOME=/app/.cache
 RUN mkdir -p /app/.cache/huggingface && \
     for i in 1 2 3 4 5; do \
-      if python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"; then \
+      if python -c "\
+from sentence_transformers import SentenceTransformer, CrossEncoder; \
+from fastembed import SparseTextEmbedding; \
+SentenceTransformer('BAAI/bge-small-en-v1.5'); \
+CrossEncoder('BAAI/bge-reranker-base'); \
+list(SparseTextEmbedding(model_name='Qdrant/bm25').embed(['warmup']))\
+"; then \
         break; \
       fi; \
       if [ "$i" = "5" ]; then \

@@ -8,9 +8,18 @@ from dataclasses import dataclass
 
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 50
+# Chunks with less alphanumeric content than this are dropped at ingest;
+# they're typically OCR/PDF noise and rank highly on character-level overlap.
+MIN_MEANINGFUL_ALNUM_CHARS = 80
 
 # Order matters: try larger separators first.
 _SEPARATORS: tuple[str, ...] = ("\n\n", "\n", ". ", " ", "")
+
+
+def is_meaningful(text: str) -> bool:
+    """A chunk is meaningful if it has enough alphanumeric content to be worth
+    indexing. Cheap filter that drops fragments like 'rs' or 'rmat [1'."""
+    return sum(1 for c in text if c.isalnum()) >= MIN_MEANINGFUL_ALNUM_CHARS
 
 
 @dataclass(frozen=True)

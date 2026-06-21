@@ -30,6 +30,7 @@ dependencies = [
     "slowapi>=0.1.9,<1.0",
     "qdrant-client>=1.12,<2.0",
     "sentence-transformers>=3.3,<5.0",
+    "fastembed>=0.4,<1.0",
     "groq>=0.20",
     "neo4j>=5.20,<6.0",
     "langgraph>=0.2,<1.0",

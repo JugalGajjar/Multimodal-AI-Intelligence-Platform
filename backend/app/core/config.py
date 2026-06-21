@@ -103,6 +103,15 @@ class Settings(BaseSettings):
     # which only colors the badge.
     strict_groundedness_threshold: float = 0.80
 
+    # Retrieval pipeline. Vector + BM25 sparse fuse via RRF, then a
+    # cross-encoder rerank picks the top_k. rerank_candidate_k is how
+    # many candidates flow into the reranker.
+    rerank_enabled: bool = True
+    rerank_candidate_k: int = 20
+    rerank_model: str = "BAAI/bge-reranker-base"
+    hybrid_enabled: bool = True
+    hybrid_per_branch_k: int = 30
+
     # Transactional email (Resend). When unset, /register skips the email
     # but still creates the user — useful for local dev without a key.
     resend_api_key: str = ""

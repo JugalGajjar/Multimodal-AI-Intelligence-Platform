@@ -50,11 +50,26 @@ WORKDIR /app
 # Self-contained venv from the builder stage — no pip install at runtime.
 COPY --from=builder /opt/venv /opt/venv
 
-# Pre-download the embedding model — chat calls `embed_query` on every turn;
-# baking it in avoids a Hugging Face round-trip on first use and keeps the
-# container working when HF is unreachable.
-RUN mkdir -p /app/.cache/huggingface \
-    && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
+# Pre-download the retrieval models (embedder, reranker, BM25 sparse) — chat
+# calls all three on every turn. Retry on HF 429s; fail the build loudly if
+# they're unreachable so we never ship an image whose chat can't retrieve.
+RUN mkdir -p /app/.cache/huggingface && \
+    for i in 1 2 3 4 5; do \
+      if python -c "\
+from sentence_transformers import SentenceTransformer, CrossEncoder; \
+from fastembed import SparseTextEmbedding; \
+SentenceTransformer('BAAI/bge-small-en-v1.5'); \
+CrossEncoder('BAAI/bge-reranker-base'); \
+list(SparseTextEmbedding(model_name='Qdrant/bm25').embed(['warmup']))\
+"; then \
+        break; \
+      fi; \
+      if [ "$i" = "5" ]; then \
+        echo "FATAL: HF model download failed after 5 attempts"; exit 1; \
+      fi; \
+      echo "HF download attempt $i failed; sleeping $((i*15))s"; \
+      sleep $((i*15)); \
+    done
 
 COPY app ./app
 COPY alembic ./alembic
