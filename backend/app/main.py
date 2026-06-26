@@ -76,9 +76,7 @@ def create_app() -> FastAPI:
     # intact while unblocking CI until the upstream instrumentation handles
     # the new wrapper.
     if settings.otel_enabled:
-        FastAPIInstrumentor.instrument_app(
-            app, excluded_urls="/api/v1/metrics,/api/v1/health"
-        )
+        FastAPIInstrumentor.instrument_app(app, excluded_urls="/api/v1/metrics,/api/v1/health")
     return app
 
 
