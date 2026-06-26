@@ -20,6 +20,7 @@ Upload anything readable. The platform extracts the text (OCR for images, Whispe
 - **Video understanding.** Adaptive frame sampling (cv2) plus audio extraction (ffmpeg) feed a single fused Nemotron VL call with the Whisper transcript embedded as document context — the model cross-references what's said against what's shown. 5-minute cap.
 - **Knowledge graph.** Entities and relationships extracted per document, visualized client-side, and used to ground answers.
 - **Cited chat.** Streaming answers with chunk-level citations and a per-answer subgraph highlighting the entities the model used.
+- **Citations that hold up.** Hybrid retrieval (BM25 sparse + dense vectors fused via reciprocal-rank in Qdrant) plus a cross-encoder reranker (`bge-reranker-base`) over the top candidates surfaces the chunk that *answers* your question, not just the topically nearest one. Citation previews are query-centered — the snippet shows the part of the chunk that mentions your terms — and a min-length filter at ingest drops sub-80-char OCR fragments before they reach the index.
 - **Chat controls.** Per-question RAG and Web toggles: answer from your documents (default), the model's own knowledge, fresh Tavily web results with clickable `[W#]` source citations, or any combination.
 - **Strict and regular modes.** Strict (default) fact-checks every answer against your documents and cited web sources, withholding anything below the grounding threshold; regular blends documents with model knowledge. Configurable per account, along with a 1–10 cap on websites searched.
 - **Persistent chat history.** Every conversation is saved with an auto-generated title and short summary. The dashboard keeps a live session thread that survives client navigation and resets on hard refresh; the Chats page lets you search across titles, summaries, and full message text, rename or delete saved threads, and read transcripts with citations intact. Follow-up questions see prior turns of the same chat.
@@ -65,7 +66,7 @@ The API stays light. All heavy lifting (OCR, ASR, embedding, vision, graph extra
 
 ## Tech stack
 
-**Backend.** Python 3.12, FastAPI, SQLAlchemy 2 async, Alembic, Pydantic 2, asyncpg, bcrypt, PyJWT, slowapi, arq, sentence-transformers, qdrant-client, neo4j, LangGraph, OpenTelemetry, prometheus-client.
+**Backend.** Python 3.12, FastAPI, SQLAlchemy 2 async, Alembic, Pydantic 2, asyncpg, bcrypt, PyJWT, slowapi, arq, sentence-transformers, fastembed, qdrant-client, neo4j, LangGraph, OpenTelemetry, prometheus-client.
 
 **Frontend.** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Zustand, TanStack Query, react-force-graph-2d, Sonner.
 
