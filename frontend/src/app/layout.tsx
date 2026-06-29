@@ -2,6 +2,7 @@ import { Analytics } from "@vercel/analytics/next";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { PostHogProvider } from "@/components/analytics/posthog-provider";
 import { Providers } from "@/components/providers";
 import { THEME_INIT_SCRIPT } from "@/components/theme/theme-provider";
 
@@ -39,7 +40,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">
-        <Providers>{children}</Providers>
+        <PostHogProvider>
+          <Providers>{children}</Providers>
+        </PostHogProvider>
         <Analytics />
       </body>
     </html>
