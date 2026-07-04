@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { ChatResponse } from "@/lib/chat-api";
 import { useAuthStore } from "@/store/auth";
@@ -19,20 +20,34 @@ type ChatSessionState = {
 
 let turnCounter = 0;
 
-// Not persisted — a hard refresh starts a new chat. Past chats are in /chats.
-export const useChatSessionStore = create<ChatSessionState>()((set) => ({
-  chatId: null,
-  turns: [],
-  setChatId: (id) => set({ chatId: id }),
-  addTurn: (question, response) =>
-    set((state) => ({
-      turns: [
-        ...state.turns,
-        { id: `turn-${++turnCounter}`, question, response },
-      ],
-    })),
-  reset: () => set({ chatId: null, turns: [] }),
-}));
+// Persisted to sessionStorage so the thread survives dashboard nav (and hard
+// refreshes within the same tab). Closing the tab or opening a new one starts
+// a fresh chat — the persisted chat still lives server-side on the Chats page.
+// Reset fires explicitly (New Chat button, sign-out, first-turn error).
+export const useChatSessionStore = create<ChatSessionState>()(
+  persist(
+    (set) => ({
+      chatId: null,
+      turns: [],
+      setChatId: (id) => set({ chatId: id }),
+      addTurn: (question, response) =>
+        set((state) => ({
+          turns: [
+            ...state.turns,
+            { id: `turn-${++turnCounter}`, question, response },
+          ],
+        })),
+      reset: () => set({ chatId: null, turns: [] }),
+    }),
+    {
+      name: "mmap-chat-session",
+      storage: createJSONStorage(() =>
+        typeof window === "undefined" ? undefined! : window.sessionStorage,
+      ),
+      partialize: (state) => ({ chatId: state.chatId, turns: state.turns }),
+    },
+  ),
+);
 
 // Wipe on sign-out so the next user doesn't see the previous one's chat.
 if (typeof window !== "undefined") {

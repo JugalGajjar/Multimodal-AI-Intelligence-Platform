@@ -18,6 +18,9 @@ function fakeResponse(answer: string): ChatResponse {
 describe("chat-session store", () => {
   beforeEach(() => {
     useChatSessionStore.getState().reset();
+    if (typeof window !== "undefined") {
+      window.sessionStorage.clear();
+    }
   });
 
   it("starts empty with no chat id", () => {
@@ -45,6 +48,28 @@ describe("chat-session store", () => {
     const after = useChatSessionStore.getState();
     expect(after.chatId).toBeNull();
     expect(after.turns).toEqual([]);
+  });
+
+  it("persists chatId + turns to sessionStorage across mount cycles", () => {
+    const s = useChatSessionStore.getState();
+    s.setChatId("c-persist");
+    s.addTurn("q-persist", fakeResponse("a-persist"));
+
+    // Persist middleware writes synchronously for JSON+sessionStorage.
+    const raw = window.sessionStorage.getItem("mmap-chat-session");
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!);
+    expect(parsed.state.chatId).toBe("c-persist");
+    expect(parsed.state.turns).toHaveLength(1);
+    expect(parsed.state.turns[0].question).toBe("q-persist");
+  });
+
+  it("does not persist volatile fields (functions stay in-memory)", () => {
+    useChatSessionStore.getState().setChatId("c-1");
+    const raw = window.sessionStorage.getItem("mmap-chat-session");
+    const parsed = JSON.parse(raw!);
+    // Only chatId + turns; no setChatId / addTurn / reset in the payload.
+    expect(Object.keys(parsed.state).sort()).toEqual(["chatId", "turns"]);
   });
 
   it("auto-resets when the auth session is cleared (prevents leaks across users)", () => {
