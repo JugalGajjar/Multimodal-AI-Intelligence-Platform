@@ -89,8 +89,10 @@ class Settings(BaseSettings):
     groq_whisper_model: str = "whisper-large-v3-turbo"
     groq_reasoning_model: str = "openai/gpt-oss-20b"
     # gpt-oss-20b is unreliable under json_object response_format on noisy
-    # OCR text; llama-3.3-70b handles structured output cleanly.
-    groq_extraction_model: str = "llama-3.3-70b-versatile"
+    # OCR text. Was llama-3.3-70b-versatile until Groq deprecated it
+    # (2026-08-16 decommission); gpt-oss-120b is same family as our reasoning
+    # model, bigger than 20B, and Groq's recommended replacement.
+    groq_extraction_model: str = "openai/gpt-oss-120b"
 
     # Tavily web search — powers the chat "Use Web" toggle. Best-effort:
     # transient failures degrade to no web context, but a missing key with
