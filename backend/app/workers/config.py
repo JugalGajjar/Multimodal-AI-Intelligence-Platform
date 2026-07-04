@@ -30,7 +30,7 @@ class WorkerSettings:
     job_timeout = 300  # 5 min per job
     # arq polls Redis at this interval to check for new jobs; idle workers
     # still pay per poll. Default 0.5s = ~5M req/mo, far over Upstash's
-    # 500K free tier. 7.5s = ~346K/mo with ~7s worst-case enqueue→pickup
-    # latency (invisible against the 30s+ OCR pipeline).
-    poll_delay = 7.5
+    # 500K free tier. 6.5s = ~399K/mo (~20% headroom) with ~6.5s worst-case
+    # enqueue→pickup latency (invisible against the 30s+ OCR pipeline).
+    poll_delay = 6.5
     on_startup = _on_startup

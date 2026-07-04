@@ -149,7 +149,7 @@ describe("<ChatPanel />", () => {
     // While the fetch is still pending, the button shows the loading label.
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: /thinking/i }),
+        screen.getByRole("button", { name: /stop/i }),
       ).toBeInTheDocument();
     });
 
@@ -183,6 +183,47 @@ describe("<ChatPanel />", () => {
     expect((init as RequestInit).headers).toMatchObject({
       Authorization: "Bearer tok-abc",
     });
+  });
+
+  it("stop button aborts the in-flight stream and restores the question", async () => {
+    // Fetch that rejects with AbortError when the caller's signal fires —
+    // mirrors what a real fetch does under abort().
+    const fetchMock = vi.fn().mockImplementation((_url, init) => {
+      return new Promise((_, reject) => {
+        (init as RequestInit).signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithQuery(<ChatPanel />);
+
+    const input = screen.getByLabelText(/question/i);
+    await userEvent.type(input, "long-running query");
+    await userEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    // Button swaps to Stop while the fetch is in flight.
+    const stopBtn = await screen.findByRole("button", { name: /stop/i });
+
+    // Click stop — the mock's signal fires, the fetch rejects, chat-panel
+    // takes the AbortError branch and restores the question.
+    await userEvent.click(stopBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /send/i })).toBeInTheDocument();
+      expect(screen.getByLabelText(/question/i)).toHaveValue("long-running query");
+    });
+
+    // No answer landed (no `done` event was ever fired).
+    expect(screen.queryByTestId("chat-answer")).not.toBeInTheDocument();
+    // No error toast either — this was a user-intent cancel, not a failure.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Fetch was called exactly once, with an AbortSignal in init.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
   });
 
   it("shows a 'no context' badge when used_context is false", async () => {

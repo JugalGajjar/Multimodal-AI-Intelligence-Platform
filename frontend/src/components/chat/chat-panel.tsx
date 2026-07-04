@@ -7,6 +7,7 @@ import {
   MessageSquareText,
   Plus,
   SendHorizontal,
+  Square,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -96,6 +97,7 @@ export function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const resizeTextarea = useCallback(() => {
     const el = textareaRef.current;
@@ -136,6 +138,12 @@ export function ChatPanel() {
     setCurrentQuestion("");
   }
 
+  function onStop() {
+    // Aborting the fetch throws inside streamChatQuery; the AbortError branch
+    // in onSubmit's catch clears the in-flight stream and restores the query.
+    abortRef.current?.abort();
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!token || !query.trim() || pending) return;
@@ -150,6 +158,9 @@ export function ChatPanel() {
     const acc: StreamState = { ...INITIAL_STREAM, status: "streaming" };
     const sync = () => setStream({ ...acc });
     sync();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       await streamChatQuery(
@@ -201,6 +212,7 @@ export function ChatPanel() {
             sync();
           },
         },
+        controller.signal,
       );
       // Stream ended without `done` — finalize whatever we got.
       if (acc.status === "streaming") {
@@ -216,10 +228,24 @@ export function ChatPanel() {
         setQuery(question);
       }
     } catch (err) {
-      acc.status = "error";
-      acc.error = err;
-      sync();
-      setQuery(question);
+      // User clicked stop: soft cancel — drop the in-flight turn, restore the
+      // question so they can edit + retry, and if this was the first turn drop
+      // the chat_id (server won't have persisted the row).
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setStream(INITIAL_STREAM);
+        setCurrentQuestion("");
+        setQuery(question);
+        if (useChatSessionStore.getState().turns.length === 0) {
+          resetSession();
+        }
+      } else {
+        acc.status = "error";
+        acc.error = err;
+        sync();
+        setQuery(question);
+      }
+    } finally {
+      abortRef.current = null;
     }
   }
 
@@ -382,16 +408,20 @@ export function ChatPanel() {
                 </ToggleChip>
               </div>
               <Button
-                type="submit"
-                disabled={pending || !query.trim()}
-                aria-label={pending ? "Thinking" : "Send"}
+                type={pending ? "button" : "submit"}
+                onClick={pending ? onStop : undefined}
+                disabled={!pending && !query.trim()}
+                aria-label={pending ? "Stop" : "Send"}
                 className="bg-gradient-brand text-brand-foreground glow-brand px-3 sm:px-4"
                 size="sm"
               >
                 {pending ? (
                   <>
-                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                    <span className="hidden sm:inline">Thinking…</span>
+                    <Square
+                      className="size-3.5 fill-current"
+                      aria-hidden="true"
+                    />
+                    <span className="hidden sm:inline">Stop</span>
                   </>
                 ) : (
                   <>
