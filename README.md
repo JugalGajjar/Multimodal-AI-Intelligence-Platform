@@ -68,7 +68,7 @@ The API stays light. All heavy lifting (OCR, ASR, embedding, vision, graph extra
 
 **Backend.** Python 3.12, FastAPI, SQLAlchemy 2 async, Alembic, Pydantic 2, asyncpg, bcrypt, PyJWT, slowapi, arq, sentence-transformers, fastembed, qdrant-client, neo4j, LangGraph, OpenTelemetry, prometheus-client.
 
-**Frontend.** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Zustand, TanStack Query, react-force-graph-2d, Sonner.
+**Frontend.** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Zustand, TanStack Query, react-force-graph-2d, Sonner, Vercel Analytics, PostHog.
 
 **Data plane.** Postgres for users and document metadata, Qdrant for vector search, Neo4j for the entity graph, Redis for the job queue and rate limiting, S3-compatible object storage (Cloudflare R2 in prod, MinIO in dev) for raw uploads.
 
@@ -135,6 +135,7 @@ All configuration is driven by environment variables. See [`.env.example`](.env.
 | `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | Transactional email. When unset, registration returns the verification code in the response (dev only). |
 | `RATE_LIMIT_ENABLED` | Per-IP limits on `/auth/*`. Disable in test suites. |
 | `OTEL_ENABLED` / `OTEL_ENDPOINT` | OpenTelemetry export. Off in CI. |
+| `NEXT_PUBLIC_POSTHOG_KEY` / `NEXT_PUBLIC_POSTHOG_HOST` | Frontend product analytics (auto pageviews + identify on login). Empty key disables the client SDK entirely, so dev and CI stay silent. Host defaults to the PostHog US instance. |
 
 ## Testing
 
