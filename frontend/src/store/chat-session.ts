@@ -13,8 +13,17 @@ export type ChatTurn = {
 type ChatSessionState = {
   chatId: string | null;
   turns: ChatTurn[];
+  /** Per-question toggles. Persisted so navigating between dashboard pages
+   *  doesn't quietly re-enable RAG or drop Web mode mid-conversation. Reset
+   *  to defaults on New Chat and on sign-out — a fresh conversation starts
+   *  with the "safe" grounded-in-your-docs setup, not whatever the last
+   *  thread happened to be using. */
+  useRag: boolean;
+  useWeb: boolean;
   setChatId: (id: string) => void;
   addTurn: (question: string, response: ChatResponse) => void;
+  setUseRag: (v: boolean) => void;
+  setUseWeb: (v: boolean) => void;
   /** Atomically replace the session with a chat loaded from the Chats page.
    *  Used to resume an old thread from /dashboard. Turns arrive already
    *  paired (question + response). */
@@ -36,6 +45,8 @@ export const useChatSessionStore = create<ChatSessionState>()(
     (set) => ({
       chatId: null,
       turns: [],
+      useRag: true,
+      useWeb: false,
       setChatId: (id) => set({ chatId: id }),
       addTurn: (question, response) =>
         set((state) => ({
@@ -44,6 +55,8 @@ export const useChatSessionStore = create<ChatSessionState>()(
             { id: `turn-${++turnCounter}`, question, response },
           ],
         })),
+      setUseRag: (v) => set({ useRag: v }),
+      setUseWeb: (v) => set({ useWeb: v }),
       hydrateFromChat: (chatId, incoming) =>
         set({
           chatId,
@@ -53,14 +66,20 @@ export const useChatSessionStore = create<ChatSessionState>()(
             response,
           })),
         }),
-      reset: () => set({ chatId: null, turns: [] }),
+      reset: () =>
+        set({ chatId: null, turns: [], useRag: true, useWeb: false }),
     }),
     {
       name: "mmap-chat-session",
       storage: createJSONStorage(() =>
         typeof window === "undefined" ? undefined! : window.sessionStorage,
       ),
-      partialize: (state) => ({ chatId: state.chatId, turns: state.turns }),
+      partialize: (state) => ({
+        chatId: state.chatId,
+        turns: state.turns,
+        useRag: state.useRag,
+        useWeb: state.useWeb,
+      }),
     },
   ),
 );

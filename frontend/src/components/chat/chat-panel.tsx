@@ -83,14 +83,16 @@ export function ChatPanel() {
   const token = useAuthStore((s) => s.token);
   const chatId = useChatSessionStore((s) => s.chatId);
   const turns = useChatSessionStore((s) => s.turns);
+  const useRag = useChatSessionStore((s) => s.useRag);
+  const useWeb = useChatSessionStore((s) => s.useWeb);
   const setChatId = useChatSessionStore((s) => s.setChatId);
   const addTurn = useChatSessionStore((s) => s.addTurn);
+  const setUseRag = useChatSessionStore((s) => s.setUseRag);
+  const setUseWeb = useChatSessionStore((s) => s.setUseWeb);
   const resetSession = useChatSessionStore((s) => s.reset);
 
   const [query, setQuery] = useState("");
   const [currentQuestion, setCurrentQuestion] = useState("");
-  const [useRag, setUseRag] = useState(true);
-  const [useWeb, setUseWeb] = useState(false);
   const [stream, setStream] = useState<StreamState>(INITIAL_STREAM);
   const pending = stream.status === "streaming";
 

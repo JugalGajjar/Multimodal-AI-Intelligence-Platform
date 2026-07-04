@@ -115,6 +115,9 @@ describe("<ChatPanel />", () => {
     );
     // The session store is module-global — reset between tests.
     useChatSessionStore.getState().reset();
+    if (typeof window !== "undefined") {
+      window.sessionStorage.clear();
+    }
   });
 
   afterEach(() => {
@@ -679,6 +682,37 @@ describe("<ChatPanel />", () => {
       expect(screen.getByTestId("toggle-web")).toHaveAttribute(
         "aria-pressed",
         "false",
+      );
+    });
+
+    it("toggle state survives unmount/remount (simulates dashboard nav)", async () => {
+      vi.stubGlobal("fetch", vi.fn());
+      const first = renderWithQuery(<ChatPanel />);
+
+      // User flips RAG off, Web on.
+      await userEvent.click(screen.getByTestId("toggle-rag"));
+      await userEvent.click(screen.getByTestId("toggle-web"));
+      expect(screen.getByTestId("toggle-rag")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(screen.getByTestId("toggle-web")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+
+      // Nav away: full unmount of the dashboard tree.
+      first.unmount();
+
+      // Nav back: fresh mount reads from the persisted store, not defaults.
+      renderWithQuery(<ChatPanel />);
+      expect(screen.getByTestId("toggle-rag")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(screen.getByTestId("toggle-web")).toHaveAttribute(
+        "aria-pressed",
+        "true",
       );
     });
 

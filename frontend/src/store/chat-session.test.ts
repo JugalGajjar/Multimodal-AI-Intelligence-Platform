@@ -96,8 +96,43 @@ describe("chat-session store", () => {
     useChatSessionStore.getState().setChatId("c-1");
     const raw = window.sessionStorage.getItem("mmap-chat-session");
     const parsed = JSON.parse(raw!);
-    // Only chatId + turns; no setChatId / addTurn / reset in the payload.
-    expect(Object.keys(parsed.state).sort()).toEqual(["chatId", "turns"]);
+    // chatId + turns + toggle prefs. No setter functions in the payload.
+    expect(Object.keys(parsed.state).sort()).toEqual([
+      "chatId",
+      "turns",
+      "useRag",
+      "useWeb",
+    ]);
+  });
+
+  it("useRag/useWeb toggles persist to sessionStorage", () => {
+    const s = useChatSessionStore.getState();
+    // Sensible defaults.
+    expect(s.useRag).toBe(true);
+    expect(s.useWeb).toBe(false);
+
+    s.setUseRag(false);
+    s.setUseWeb(true);
+
+    const raw = window.sessionStorage.getItem("mmap-chat-session");
+    const parsed = JSON.parse(raw!);
+    expect(parsed.state.useRag).toBe(false);
+    expect(parsed.state.useWeb).toBe(true);
+  });
+
+  it("reset restores toggle defaults (New Chat + sign-out start fresh)", () => {
+    const s = useChatSessionStore.getState();
+    s.setUseRag(false);
+    s.setUseWeb(true);
+    s.setChatId("c-1");
+    s.addTurn("q", fakeResponse("a"));
+
+    useChatSessionStore.getState().reset();
+    const after = useChatSessionStore.getState();
+    expect(after.chatId).toBeNull();
+    expect(after.turns).toEqual([]);
+    expect(after.useRag).toBe(true); // default restored
+    expect(after.useWeb).toBe(false); // default restored
   });
 
   it("auto-resets when the auth session is cleared (prevents leaks across users)", () => {
