@@ -148,18 +148,22 @@ export default function AboutPage() {
                   >
                     Dashboard
                   </Link>{" "}
-                  and ask a question. Follow ups remember earlier turns.
+                  and ask a question. Follow ups remember earlier turns, and
+                  the thread stays put if you wander off to Documents or
+                  Settings and come back.
                 </li>
                 <li>
-                  When you are done, hit <em>New chat</em> to start fresh, or
-                  reload the tab. Old conversations live under{" "}
+                  When you are done, hit <em>New chat</em> to start fresh,
+                  or reload the tab. Old conversations live under{" "}
                   <Link
                     href="/dashboard/chats"
                     className="font-medium text-[color:var(--brand)] underline-offset-4 hover:underline"
                   >
                     Chats
                   </Link>
-                  , where you can search, rename, or delete them.
+                  , where you can search across titles, summaries, and
+                  message text, rename a thread, or delete it. Opening an
+                  old chat shows the full transcript with citations intact.
                 </li>
               </ol>
             }
@@ -190,6 +194,20 @@ export default function AboutPage() {
                   groundedness score is low. Pick regular if you want a
                   hybrid that blends documents with general knowledge and is
                   honest about which is which.
+                </li>
+                <li>
+                  <strong>You can stop a slow answer.</strong> While the
+                  response is streaming, the send button turns into a stop
+                  icon. Click it if the model is going somewhere you did not
+                  want. Your question comes back into the box so you can
+                  rephrase and try again.
+                </li>
+                <li>
+                  <strong>Citations that actually match.</strong> Under each
+                  answer the citation preview is centered on the words from
+                  your question, not the first line of the chunk. If a
+                  citation looks off, the snippet usually makes it obvious
+                  why.
                 </li>
                 <li>
                   <strong>Use good filenames.</strong> The title of the chat
@@ -224,24 +242,39 @@ export default function AboutPage() {
             body={
               <ul className="space-y-2 text-sm leading-relaxed">
                 <li>
-                  <strong>Reading.</strong> RapidOCR for images, Whisper Large
-                  v3 Turbo on Groq for audio, Nemotron Nano 2 VL on OpenRouter
-                  for video frames and PDFs, plus native parse for text.
+                  <strong>Reading.</strong> RapidOCR for images, Whisper
+                  Large v3 Turbo on Groq for audio, native parse for PDFs
+                  and text. Video samples up to 30 adaptive frames plus the
+                  audio track, then feeds all of it into a single Nemotron
+                  Nano 2 VL call so the model can cross reference what is
+                  said against what is shown.
                 </li>
                 <li>
-                  <strong>Indexing.</strong> sentence-transformers
-                  (bge-small-en-v1.5, 384 dims) into Qdrant for vector search,
-                  and Neo4j AuraDB for the entity graph.
+                  <strong>Indexing.</strong> Each chunk is embedded twice.
+                  Once as a dense vector with sentence-transformers
+                  (bge-small-en-v1.5, 384 dims) and once as a sparse BM25
+                  vector. Qdrant fuses the two via reciprocal rank at query
+                  time, so keyword hits and semantic hits both surface. A
+                  cross encoder reranker (bge-reranker-base) then re-scores
+                  the top candidates against the exact question, so the
+                  chunk that answers you wins and not just the topically
+                  nearest one. Anything under 80 alphanumeric characters
+                  gets dropped at ingest so OCR noise never lands in the
+                  index. Neo4j AuraDB holds the entity graph on the side.
                 </li>
                 <li>
-                  <strong>Reasoning.</strong> DeepSeek for the main answer,
-                  Llama 3.3 70B for entity and structured extraction, both
-                  through cheap free tier endpoints.
+                  <strong>Reasoning.</strong> DeepSeek Flash on OpenRouter
+                  writes the main answer. GPT-OSS 120B on Groq handles
+                  entity extraction, chat summarization, intent routing,
+                  and answer verification. Both run on free tier endpoints
+                  so an idle account costs nothing.
                 </li>
                 <li>
-                  <strong>Verifying.</strong> Every answer is checked against
-                  the cited context by a separate model, and the score is
-                  shown on the badge above the response.
+                  <strong>Verifying.</strong> Every answer is checked
+                  against the cited context (and web sources when the Web
+                  toggle is on) by a separate model. The score is shown on
+                  the badge above the response, and any claims that could
+                  not be grounded get flagged inline.
                 </li>
               </ul>
             }
