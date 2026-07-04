@@ -39,6 +39,34 @@ describe("chat-session store", () => {
     expect(turns[0].id).not.toBe(turns[1].id);
   });
 
+  it("hydrateFromChat replaces state atomically with paired turns", () => {
+    const s = useChatSessionStore.getState();
+    // Seed a stale session to make sure hydrate REPLACES rather than appends.
+    s.setChatId("old-chat");
+    s.addTurn("stale question", fakeResponse("stale answer"));
+
+    s.hydrateFromChat("resumed-chat", [
+      { question: "q1", response: fakeResponse("a1") },
+      { question: "q2", response: fakeResponse("a2") },
+    ]);
+
+    const after = useChatSessionStore.getState();
+    expect(after.chatId).toBe("resumed-chat");
+    expect(after.turns.map((t) => t.question)).toEqual(["q1", "q2"]);
+    expect(after.turns.map((t) => t.response.answer)).toEqual(["a1", "a2"]);
+    // Each hydrated turn gets a fresh unique id.
+    expect(after.turns[0].id).not.toBe(after.turns[1].id);
+  });
+
+  it("hydrateFromChat with an empty message list clears the thread but keeps the id", () => {
+    const s = useChatSessionStore.getState();
+    s.addTurn("q", fakeResponse("a"));
+    s.hydrateFromChat("empty-chat", []);
+    const after = useChatSessionStore.getState();
+    expect(after.chatId).toBe("empty-chat");
+    expect(after.turns).toEqual([]);
+  });
+
   it("reset clears chat id and turns", () => {
     const s = useChatSessionStore.getState();
     s.setChatId("c-1");

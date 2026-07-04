@@ -8,10 +8,12 @@ import {
   History,
   MessageSquareText,
   Pencil,
+  Play,
   Search,
   Trash2,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,11 +36,13 @@ import {
   listChats,
   renameChat,
   searchChats,
+  type ChatDetail,
   type ChatListItem,
   type ChatMessageItem,
   type ChatSearchItem,
 } from "@/lib/chats-api";
 import { useAuthStore } from "@/store/auth";
+import { useChatSessionStore } from "@/store/chat-session";
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -60,10 +64,13 @@ function formatDate(iso: string): string {
 export function ChatsList() {
   const token = useAuthStore((s) => s.token);
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const hydrateFromChat = useChatSessionStore((s) => s.hydrateFromChat);
   const [search, setSearch] = useState("");
   const debouncedQ = useDebounced(search.trim(), 300);
   const [openId, setOpenId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [continuingId, setContinuingId] = useState<string | null>(null);
 
   const searching = debouncedQ.length > 0;
   const { data, isLoading, isError } = useQuery({
@@ -81,6 +88,24 @@ export function ChatsList() {
     },
     onError: (err: unknown) =>
       toast.error(err instanceof Error ? err.message : "Delete failed."),
+  });
+
+  const continueMutation = useMutation({
+    mutationFn: async (id: string): Promise<ChatDetail> => {
+      setContinuingId(id);
+      // Reuse the transcript cache when the row is expanded; otherwise fetch.
+      return queryClient.fetchQuery({
+        queryKey: ["chat", id],
+        queryFn: () => getChat(token!, id),
+      });
+    },
+    onSuccess: (detail) => {
+      hydrateFromChat(detail.id, messagesToTurns(detail.messages));
+      router.push("/dashboard");
+    },
+    onError: (err: unknown) =>
+      toast.error(err instanceof Error ? err.message : "Could not load chat."),
+    onSettled: () => setContinuingId(null),
   });
 
   const items = data?.items ?? [];
@@ -151,12 +176,14 @@ export function ChatsList() {
                 chat={chat}
                 open={openId === chat.id}
                 renaming={renamingId === chat.id}
+                continuing={continuingId === chat.id}
                 onToggleOpen={() =>
                   setOpenId((id) => (id === chat.id ? null : chat.id))
                 }
                 onStartRename={() => setRenamingId(chat.id)}
                 onEndRename={() => setRenamingId(null)}
                 onDelete={() => deleteMutation.mutate(chat.id)}
+                onContinue={() => continueMutation.mutate(chat.id)}
               />
             ))}
           </ul>
@@ -170,18 +197,22 @@ function ChatRow({
   chat,
   open,
   renaming,
+  continuing,
   onToggleOpen,
   onStartRename,
   onEndRename,
   onDelete,
+  onContinue,
 }: {
   chat: ChatListItem | ChatSearchItem;
   open: boolean;
   renaming: boolean;
+  continuing: boolean;
   onToggleOpen: () => void;
   onStartRename: () => void;
   onEndRename: () => void;
   onDelete: () => void;
+  onContinue: () => void;
 }) {
   const snippet = "snippet" in chat ? chat : null;
 
@@ -227,6 +258,20 @@ function ChatRow({
           </p>
         </div>
         <div className="-ml-1 flex shrink-0 flex-wrap items-center gap-1 sm:ml-auto">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onContinue}
+            disabled={continuing}
+            title="Continue this chat on the dashboard"
+            data-testid="chat-continue-button"
+            className="gap-1"
+          >
+            <Play className="size-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">
+              {continuing ? "Loading…" : "Continue"}
+            </span>
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -342,6 +387,28 @@ function RenameForm({
       </Button>
     </div>
   );
+}
+
+/** Walk the seq-ordered message list and pair each user message with the
+ *  assistant message immediately after it. Orphan messages (a user turn with
+ *  no assistant reply yet, or an assistant reply without a preceding user)
+ *  are skipped — they can't be represented as a ChatTurn. */
+function messagesToTurns(
+  messages: ChatMessageItem[],
+): Array<{ question: string; response: ChatResponse }> {
+  const turns: Array<{ question: string; response: ChatResponse }> = [];
+  for (let i = 0; i < messages.length - 1; i += 1) {
+    const user = messages[i];
+    const assistant = messages[i + 1];
+    if (user.role === "user" && assistant.role === "assistant") {
+      turns.push({
+        question: user.content,
+        response: messageToResponse(assistant),
+      });
+      i += 1; // consumed the assistant reply too
+    }
+  }
+  return turns;
 }
 
 function messageToResponse(m: ChatMessageItem): ChatResponse {

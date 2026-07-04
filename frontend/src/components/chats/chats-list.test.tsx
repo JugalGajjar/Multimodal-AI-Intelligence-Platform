@@ -9,8 +9,15 @@ vi.mock("@/components/graph/knowledge-graph", () => ({
   KnowledgeGraph: () => <div data-testid="kg-stub" />,
 }));
 
+// useRouter needs the App Router context, which isn't mounted in unit tests.
+const routerPush = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
+}));
+
 import { ChatsList } from "./chats-list";
 import { useAuthStore } from "@/store/auth";
+import { useChatSessionStore } from "@/store/chat-session";
 
 function renderWithQuery(ui: ReactNode) {
   const queryClient = new QueryClient({
@@ -70,8 +77,13 @@ describe("<ChatsList />", () => {
 
   beforeEach(() => {
     fetchMock.mockReset();
+    routerPush.mockReset();
     vi.stubGlobal("fetch", fetchMock);
     useAuthStore.getState().setSession({ id: "u-1", email: "a@b.com" }, "tok");
+    useChatSessionStore.getState().reset();
+    if (typeof window !== "undefined") {
+      window.sessionStorage.clear();
+    }
   });
 
   afterEach(() => {
@@ -204,5 +216,33 @@ describe("<ChatsList />", () => {
     // Read-only: no textarea/input inside the transcript.
     expect(transcript.querySelector("textarea")).toBeNull();
     expect(transcript.querySelector("input")).toBeNull();
+  });
+
+  it("Continue hydrates the session store with paired turns and routes to /dashboard", async () => {
+    fetchMock
+      .mockResolvedValueOnce(ok({ items: [CHAT], total: 1 }))
+      .mockResolvedValueOnce(ok(DETAIL));
+
+    renderWithQuery(<ChatsList />);
+    await screen.findByTestId("chat-title");
+
+    // Store starts empty.
+    expect(useChatSessionStore.getState().chatId).toBeNull();
+    expect(useChatSessionStore.getState().turns).toEqual([]);
+
+    await userEvent.click(screen.getByTestId("chat-continue-button"));
+
+    await waitFor(() => {
+      expect(routerPush).toHaveBeenCalledWith("/dashboard");
+    });
+
+    const state = useChatSessionStore.getState();
+    expect(state.chatId).toBe(CHAT.id);
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0].question).toBe("What is prompt engineering?");
+    expect(state.turns[0].response.answer).toBe(
+      "It is **instruction design** for AI models.",
+    );
+    expect(state.turns[0].response.used_context).toBe(true);
   });
 });

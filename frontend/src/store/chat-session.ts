@@ -15,6 +15,13 @@ type ChatSessionState = {
   turns: ChatTurn[];
   setChatId: (id: string) => void;
   addTurn: (question: string, response: ChatResponse) => void;
+  /** Atomically replace the session with a chat loaded from the Chats page.
+   *  Used to resume an old thread from /dashboard. Turns arrive already
+   *  paired (question + response). */
+  hydrateFromChat: (
+    chatId: string,
+    turns: Array<{ question: string; response: ChatResponse }>,
+  ) => void;
   reset: () => void;
 };
 
@@ -37,6 +44,15 @@ export const useChatSessionStore = create<ChatSessionState>()(
             { id: `turn-${++turnCounter}`, question, response },
           ],
         })),
+      hydrateFromChat: (chatId, incoming) =>
+        set({
+          chatId,
+          turns: incoming.map(({ question, response }) => ({
+            id: `turn-${++turnCounter}`,
+            question,
+            response,
+          })),
+        }),
       reset: () => set({ chatId: null, turns: [] }),
     }),
     {
