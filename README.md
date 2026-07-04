@@ -54,12 +54,12 @@ Upload anything readable. The platform extracts the text (OCR for images, Whispe
       | summarize,
       | graph extract
       v
-+-----------------------+
-|  OpenRouter (Nemotron |
-|  Nano 2 VL, DeepSeek) |
-|  Groq (Whisper, Llama)|
-|  Tavily (web search)  |
-+-----------------------+
++--------------------------+
+|  OpenRouter (Nemotron    |
+|  Nano 2 VL, DeepSeek)    |
+|  Groq (Whisper, GPT-OSS) |
+|  Tavily (web search)     |
++--------------------------+
 ```
 
 The API stays light. All heavy lifting (OCR, ASR, embedding, vision, graph extraction) runs in the arq worker process so request latency stays bounded.
@@ -72,7 +72,7 @@ The API stays light. All heavy lifting (OCR, ASR, embedding, vision, graph extra
 
 **Data plane.** Postgres for users and document metadata, Qdrant for vector search, Neo4j for the entity graph, Redis for the job queue and rate limiting, S3-compatible object storage (Cloudflare R2 in prod, MinIO in dev) for raw uploads.
 
-**Models.** OpenRouter for vision and video (NVIDIA Nemotron Nano 2 VL) and reasoning (DeepSeek). Groq for audio transcription (Whisper Large v3 Turbo) and entity extraction (Llama 3.3 70B). Tavily for web-search augmentation.
+**Models.** OpenRouter for vision and video (NVIDIA Nemotron Nano 2 VL) and reasoning (DeepSeek). Groq for audio transcription (Whisper Large v3 Turbo), fast reasoning (GPT-OSS 20B), and structured extraction / verification / summarization (GPT-OSS 120B). Tavily for web-search augmentation.
 
 **Tests.** pytest (backend unit and integration), vitest plus Testing Library (frontend), Playwright (end-to-end), with a nightly workflow that spins up the full docker compose stack.
 
