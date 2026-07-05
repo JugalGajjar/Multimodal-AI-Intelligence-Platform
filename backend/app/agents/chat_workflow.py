@@ -49,6 +49,8 @@ class ChatState(TypedDict, total=False):
     use_web: bool  # default False
     rag_mode: str  # "strict" | "regular", from the user row
     web_max_results: int
+    # Answer-model override. None = fall back to settings.groq_reasoning_model.
+    chat_model: str | None
     # Past turns ([{role, content}]) — fed to respond only.
     history: list[dict[str, str]]
 
@@ -231,11 +233,12 @@ def build_respond_messages(state: ChatState) -> list[dict[str, str]]:
 
 async def respond_node(state: ChatState) -> dict[str, Any]:
     # Lets GroqChatError propagate so the router can map upstream status codes.
+    model = state.get("chat_model") or settings.groq_reasoning_model
     async with time_node_async("respond"):
-        answer = await chat_completion(messages=build_respond_messages(state))
+        answer = await chat_completion(messages=build_respond_messages(state), model=model)
     return {
         "answer": answer,
-        "model": settings.groq_reasoning_model,
+        "model": model,
     }
 
 
@@ -249,6 +252,7 @@ async def prepare_context_state(
     use_web: bool = False,
     rag_mode: str = "strict",
     web_max_results: int = 5,
+    chat_model: str | None = None,
     history: list[dict[str, str]] | None = None,
 ) -> ChatState:
     """Run classify + the appropriate retrieve branch + web search, returning
@@ -268,6 +272,7 @@ async def prepare_context_state(
         "use_web": use_web,
         "rag_mode": rag_mode,
         "web_max_results": web_max_results,
+        "chat_model": chat_model,
         "history": history or [],
     }
     state.update(await classify_node(state))  # type: ignore[typeddict-item]
@@ -363,6 +368,7 @@ async def run_chat(
     use_web: bool = False,
     rag_mode: str = "strict",
     web_max_results: int = 5,
+    chat_model: str | None = None,
     history: list[dict[str, str]] | None = None,
 ) -> ChatState:
     initial: ChatState = {
@@ -374,6 +380,7 @@ async def run_chat(
         "use_web": use_web,
         "rag_mode": rag_mode,
         "web_max_results": web_max_results,
+        "chat_model": chat_model,
         "history": history or [],
     }
     final = await chat_workflow.ainvoke(initial)

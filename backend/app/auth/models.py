@@ -41,6 +41,10 @@ class User(Base):
     web_max_results: Mapped[int] = mapped_column(
         Integer, default=5, server_default="5", nullable=False
     )
+    # Answer-model preference. NULL = use the app-wide default
+    # (settings.groq_reasoning_model). Value must be an id in
+    # app.agents.models.CHAT_MODELS at the API layer.
+    chat_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

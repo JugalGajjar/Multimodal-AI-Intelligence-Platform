@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareText, ShieldCheck, Sparkles } from "lucide-react";
+import { Cpu, MessageSquareText, ShieldCheck, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -15,6 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
+  fetchChatModels,
   fetchChatSettings,
   updateChatSettings,
   type RagMode,
@@ -51,6 +52,14 @@ export function ChatSettingsCard() {
     queryKey: ["chat-settings"],
     queryFn: () => fetchChatSettings(token!),
     enabled: !!token,
+  });
+
+  const { data: modelsData } = useQuery({
+    queryKey: ["chat-models"],
+    queryFn: () => fetchChatModels(token!),
+    enabled: !!token,
+    // Curated list doesn't change per request — cache for the session.
+    staleTime: Infinity,
   });
 
   // Local slider position while dragging; null = mirror the server value.
@@ -184,6 +193,50 @@ export function ChatSettingsCard() {
               <p className="text-xs text-muted-foreground">
                 How many search results are fetched and cited when the Web
                 toggle is on. More sites = richer context, slower answers.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="chat-model"
+                className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground"
+              >
+                <Cpu className="size-3" aria-hidden="true" />
+                Answer model
+              </label>
+              <select
+                id="chat-model"
+                data-testid="chat-model-select"
+                disabled={saving || !modelsData}
+                value={data.chat_model ?? ""}
+                onChange={(e) =>
+                  patch({
+                    chat_model: e.target.value === "" ? null : e.target.value,
+                  })
+                }
+                className={cn(
+                  "w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-sm",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand)]/40",
+                  "disabled:pointer-events-none disabled:opacity-60",
+                )}
+              >
+                <option value="">
+                  Default
+                  {modelsData ? ` (${modelsData.default})` : ""}
+                </option>
+                <optgroup label="Open source">
+                  {(modelsData?.models ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label} — {m.provider}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {data.chat_model
+                  ? modelsData?.models.find((m) => m.id === data.chat_model)
+                      ?.notes ?? "Custom model selected."
+                  : "Uses the app-wide default. Pick a specific model to override it just for your account."}
               </p>
             </div>
           </>

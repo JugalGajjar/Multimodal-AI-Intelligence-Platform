@@ -124,6 +124,19 @@ def _require_providers(payload: ChatRequest) -> None:
         )
 
 
+@router.get("/models")
+async def list_chat_models(_: CurrentUserDep) -> dict[str, Any]:
+    """Curated list of chat-answer models the Settings page can offer.
+    Auth-gated because it's tied to a user's account preference — no need
+    to leak the catalog to unauthenticated clients."""
+    from app.agents.models import CHAT_MODELS
+
+    return {
+        "default": settings.groq_reasoning_model,
+        "models": [m.model_dump() for m in CHAT_MODELS],
+    }
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(
     payload: ChatRequest,
@@ -150,6 +163,7 @@ async def chat(
             use_web=payload.use_web,
             rag_mode=current_user.rag_mode,
             web_max_results=current_user.web_max_results,
+            chat_model=current_user.chat_model,
         )
     except GroqChatError as exc:
         code = exc.status_code if 400 <= exc.status_code < 600 else 502
@@ -205,6 +219,7 @@ async def _stream_generator(
             use_web=payload.use_web,
             rag_mode=user.rag_mode,
             web_max_results=user.web_max_results,
+            chat_model=user.chat_model,
             history=chat_ctx.history,
         )
     except GroqChatError as exc:
@@ -228,6 +243,10 @@ async def _stream_generator(
     entities_json = [e.model_dump() for e in _to_entities_used(graph_facts)]
     web_citations_json = [w.model_dump() for w in _web_citations(web_results)]
 
+    # Resolve the model that will actually answer this turn. Falls back to the
+    # server default when the user hasn't overridden it in Settings.
+    chosen_model = user.chat_model or settings.groq_reasoning_model
+
     yield _sse(
         "meta",
         {
@@ -236,7 +255,7 @@ async def _stream_generator(
             "used_context": bool(state.get("used_context")),
             "used_graph": bool(state.get("used_graph")),
             "used_web": bool(state.get("used_web")),
-            "model": settings.groq_reasoning_model,
+            "model": chosen_model,
             "citations": citations_json,
             "entities_used": entities_json,
             "web_citations": web_citations_json,
@@ -248,7 +267,9 @@ async def _stream_generator(
 
     parts: list[str] = []
     try:
-        async for token in stream_chat_completion(messages=build_respond_messages(state)):
+        async for token in stream_chat_completion(
+            messages=build_respond_messages(state), model=chosen_model
+        ):
             parts.append(token)
             yield _sse("token", {"text": token})
     except GroqChatError as exc:
@@ -290,7 +311,7 @@ async def _stream_generator(
             web_citations=web_citations_json,
             verification=_to_verification(verification).model_dump(),
             response_meta={
-                "model": settings.groq_reasoning_model,
+                "model": chosen_model,
                 "intent": intent,
                 "used_context": bool(state.get("used_context")),
                 "used_graph": bool(state.get("used_graph")),

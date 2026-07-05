@@ -87,11 +87,13 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     groq_whisper_model: str = "whisper-large-v3-turbo"
-    groq_reasoning_model: str = "openai/gpt-oss-20b"
-    # gpt-oss-20b is unreliable under json_object response_format on noisy
-    # OCR text. Was llama-3.3-70b-versatile until Groq deprecated it
-    # (2026-08-16 decommission); gpt-oss-120b is same family as our reasoning
-    # model, bigger than 20B, and Groq's recommended replacement.
+    # Default chat-answer model. Users can override per account via Settings
+    # (see app.agents.models for the curated list); this is the fallback when
+    # `users.chat_model` is null.
+    groq_reasoning_model: str = "openai/gpt-oss-120b"
+    # Extraction (verification / summarization / entity extraction / intent
+    # routing) also uses gpt-oss-120b — was llama-3.3-70b-versatile until Groq
+    # deprecated it (2026-08-16 decommission).
     groq_extraction_model: str = "openai/gpt-oss-120b"
 
     # Tavily web search — powers the chat "Use Web" toggle. Best-effort:

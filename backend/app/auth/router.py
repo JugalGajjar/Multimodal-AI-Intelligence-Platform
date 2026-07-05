@@ -256,10 +256,23 @@ async def update_settings(
     current_user: CurrentUserDep,
     db: DbDep,
 ) -> User:
+    from app.agents.models import is_valid_chat_model
+
     if payload.rag_mode is not None:
         current_user.rag_mode = payload.rag_mode
     if payload.web_max_results is not None:
         current_user.web_max_results = payload.web_max_results
+    # Distinguish "unset" (leave alone) from "explicit null" (revert to default).
+    # Pydantic exposes the set of fields the client actually sent via
+    # `model_fields_set` — `None` here is a legitimate value meaning
+    # "clear my override".
+    if "chat_model" in payload.model_fields_set:
+        if not is_valid_chat_model(payload.chat_model):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unknown chat model.",
+            )
+        current_user.chat_model = payload.chat_model
     await db.commit()
     await db.refresh(current_user)
     return current_user

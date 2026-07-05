@@ -23,11 +23,50 @@ function ok(body: unknown, status = 200) {
   });
 }
 
+const MODELS_RESPONSE = {
+  default: "openai/gpt-oss-120b",
+  models: [
+    {
+      id: "openai/gpt-oss-120b",
+      label: "GPT-OSS 120B",
+      provider: "Groq",
+      category: "open-source",
+      notes: "Larger, stronger reasoning.",
+      is_default: true,
+    },
+    {
+      id: "qwen/qwen3-32b",
+      label: "Qwen3 32B",
+      provider: "Groq",
+      category: "open-source",
+      notes: "Alternative family.",
+      is_default: false,
+    },
+  ],
+};
+
 describe("<ChatSettingsCard />", () => {
   const fetchMock = vi.fn();
+  // Per-test FIFO queue for /auth/settings responses only — the /chat/models
+  // endpoint fires concurrently, so we can't share one mock chain across both.
+  const settingsResponses: Response[] = [];
+  function queueSettings(...responses: Response[]) {
+    settingsResponses.push(...responses);
+  }
 
   beforeEach(() => {
     fetchMock.mockReset();
+    settingsResponses.length = 0;
+    fetchMock.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.includes("/chat/models")) return Promise.resolve(ok(MODELS_RESPONSE));
+      if (u.includes("/auth/settings")) {
+        const next = settingsResponses.shift();
+        if (!next) return Promise.reject(new Error("no queued settings response"));
+        return Promise.resolve(next);
+      }
+      return Promise.reject(new Error("unhandled fetch: " + u));
+    });
     vi.stubGlobal("fetch", fetchMock);
     useAuthStore.getState().setSession({ id: "u-1", email: "a@b.com" }, "tok");
   });
@@ -38,7 +77,7 @@ describe("<ChatSettingsCard />", () => {
   });
 
   it("loads settings and marks the active mode", async () => {
-    fetchMock.mockResolvedValueOnce(ok({ rag_mode: "strict", web_max_results: 5 }));
+    queueSettings(ok({ rag_mode: "strict", web_max_results: 5, chat_model: null }));
 
     renderWithQuery(<ChatSettingsCard />);
 
@@ -56,10 +95,11 @@ describe("<ChatSettingsCard />", () => {
   });
 
   it("PATCHes rag_mode when the inactive mode is clicked", async () => {
-    fetchMock
-      .mockResolvedValueOnce(ok({ rag_mode: "strict", web_max_results: 5 }))
-      .mockResolvedValueOnce(ok({ rag_mode: "regular", web_max_results: 5 }))
-      .mockResolvedValueOnce(ok({ rag_mode: "regular", web_max_results: 5 }));
+    queueSettings(
+      ok({ rag_mode: "strict", web_max_results: 5, chat_model: null }),
+      ok({ rag_mode: "regular", web_max_results: 5, chat_model: null }),
+      ok({ rag_mode: "regular", web_max_results: 5, chat_model: null }),
+    );
 
     renderWithQuery(<ChatSettingsCard />);
     await screen.findByTestId("rag-mode-regular");
@@ -78,7 +118,7 @@ describe("<ChatSettingsCard />", () => {
   });
 
   it("does not PATCH when the already-active mode is clicked", async () => {
-    fetchMock.mockResolvedValueOnce(ok({ rag_mode: "strict", web_max_results: 5 }));
+    queueSettings(ok({ rag_mode: "strict", web_max_results: 5, chat_model: null }));
 
     renderWithQuery(<ChatSettingsCard />);
     await screen.findByTestId("rag-mode-strict");
@@ -92,10 +132,11 @@ describe("<ChatSettingsCard />", () => {
   });
 
   it("commits the slider via PATCH on release", async () => {
-    fetchMock
-      .mockResolvedValueOnce(ok({ rag_mode: "strict", web_max_results: 5 }))
-      .mockResolvedValueOnce(ok({ rag_mode: "strict", web_max_results: 8 }))
-      .mockResolvedValueOnce(ok({ rag_mode: "strict", web_max_results: 8 }));
+    queueSettings(
+      ok({ rag_mode: "strict", web_max_results: 5, chat_model: null }),
+      ok({ rag_mode: "strict", web_max_results: 8, chat_model: null }),
+      ok({ rag_mode: "strict", web_max_results: 8, chat_model: null }),
+    );
 
     renderWithQuery(<ChatSettingsCard />);
     const slider = await screen.findByLabelText(/max websites/i);
@@ -113,6 +154,84 @@ describe("<ChatSettingsCard />", () => {
       expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual(
         { web_max_results: 8 },
       );
+    });
+  });
+
+  it("renders the model picker with the curated list + a Default option", async () => {
+    queueSettings(ok({ rag_mode: "strict", web_max_results: 5, chat_model: null }));
+
+    renderWithQuery(<ChatSettingsCard />);
+    const select = (await screen.findByTestId(
+      "chat-model-select",
+    )) as HTMLSelectElement;
+
+    const optionTexts = Array.from(select.options).map((o) => o.textContent);
+    expect(optionTexts.some((t) => t?.startsWith("Default"))).toBe(true);
+    expect(optionTexts.some((t) => t?.includes("GPT-OSS 120B"))).toBe(true);
+    expect(optionTexts.some((t) => t?.includes("Qwen3 32B"))).toBe(true);
+    // Empty string = follow the server default.
+    expect(select.value).toBe("");
+  });
+
+  it("PATCHes chat_model when the user picks a specific model", async () => {
+    queueSettings(
+      ok({ rag_mode: "strict", web_max_results: 5, chat_model: null }),
+      ok({
+        rag_mode: "strict",
+        web_max_results: 5,
+        chat_model: "qwen/qwen3-32b",
+      }),
+      ok({
+        rag_mode: "strict",
+        web_max_results: 5,
+        chat_model: "qwen/qwen3-32b",
+      }),
+    );
+
+    renderWithQuery(<ChatSettingsCard />);
+    const select = await screen.findByTestId("chat-model-select");
+
+    await userEvent.selectOptions(select, "qwen/qwen3-32b");
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(
+        (c) => (c[1] as RequestInit | undefined)?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      expect(
+        JSON.parse((patchCall![1] as RequestInit).body as string),
+      ).toEqual({ chat_model: "qwen/qwen3-32b" });
+    });
+  });
+
+  it("PATCHes chat_model: null when the user picks Default", async () => {
+    queueSettings(
+      ok({
+        rag_mode: "strict",
+        web_max_results: 5,
+        chat_model: "qwen/qwen3-32b",
+      }),
+      ok({ rag_mode: "strict", web_max_results: 5, chat_model: null }),
+      ok({ rag_mode: "strict", web_max_results: 5, chat_model: null }),
+    );
+
+    renderWithQuery(<ChatSettingsCard />);
+    const select = (await screen.findByTestId(
+      "chat-model-select",
+    )) as HTMLSelectElement;
+    // Start with an override — the dropdown reflects it.
+    await waitFor(() => expect(select.value).toBe("qwen/qwen3-32b"));
+
+    await userEvent.selectOptions(select, "");
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(
+        (c) => (c[1] as RequestInit | undefined)?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      expect(
+        JSON.parse((patchCall![1] as RequestInit).body as string),
+      ).toEqual({ chat_model: null });
     });
   });
 });

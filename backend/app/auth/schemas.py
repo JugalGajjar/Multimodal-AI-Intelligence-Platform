@@ -93,8 +93,16 @@ class ChatSettingsResponse(BaseModel):
 
     rag_mode: RagMode
     web_max_results: int
+    # None → follow the server default. Otherwise an id from
+    # app.agents.models.CHAT_MODELS (enforced at the PATCH layer).
+    chat_model: str | None = None
 
 
 class ChatSettingsUpdate(BaseModel):
     rag_mode: RagMode | None = None
     web_max_results: int | None = Field(default=None, ge=1, le=10)
+    # Explicit `None` in the payload means "clear my override, use the
+    # server default again" — we can't use the pydantic-optional trick
+    # (unset vs null) here, so the router treats `chat_model` as always
+    # present in the diff and validates the value.
+    chat_model: str | None = None

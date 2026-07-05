@@ -57,10 +57,16 @@ def test_sse_formats_event_and_json_payload():
 
 
 class _StubUser:
-    def __init__(self, rag_mode: str = "strict", web_max_results: int = 5):
+    def __init__(
+        self,
+        rag_mode: str = "strict",
+        web_max_results: int = 5,
+        chat_model: str | None = None,
+    ):
         self.id = uuid4()
         self.rag_mode = rag_mode
         self.web_max_results = web_max_results
+        self.chat_model = chat_model
 
 
 def _ctx(
@@ -141,6 +147,95 @@ async def test_stream_emits_meta_tokens_then_done():
     done = events[4][1]
     assert done["verification"]["verdict"] == "verified"
     assert done["verification"]["groundedness_score"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_stream_uses_user_chat_model_in_meta_and_persist(_mock_chat_persistence):
+    """When the user has picked a non-default model in Settings, that id
+    should appear in the meta event, be passed to stream_chat_completion,
+    and land in the persisted response_meta."""
+    user = _StubUser(chat_model="qwen/qwen3-32b")
+    chunks = [_chunk("Qdrant.")]
+    seen_stream_kwargs: dict = {}
+
+    async def fake_stream(**kwargs):
+        seen_stream_kwargs.update(kwargs)
+        for t in ["hi"]:
+            yield t
+
+    state = {
+        "query": "q",
+        "user_id": user.id,
+        "intent": "chat",
+        "chunks": chunks,
+        "graph_facts": [],
+        "used_context": True,
+        "used_graph": False,
+    }
+
+    with (
+        patch.object(rag_router, "prepare_context_state", new=AsyncMock(return_value=state)),
+        patch.object(rag_router, "stream_chat_completion", new=fake_stream),
+        patch.object(
+            rag_router,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="verified", groundedness_score=1.0)
+            ),
+        ),
+    ):
+        payload = ChatRequest(query="q", top_k=3)
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user, _ctx())))  # type: ignore[arg-type]
+
+    meta = events[0][1]
+    assert meta["model"] == "qwen/qwen3-32b"
+    # stream_chat_completion was called with the user's chosen model, not the
+    # global default.
+    assert seen_stream_kwargs.get("model") == "qwen/qwen3-32b"
+    # persist_turn's response_meta records what actually answered the turn.
+    persist_call = _mock_chat_persistence["persist"].await_args
+    assert persist_call.kwargs["response_meta"]["model"] == "qwen/qwen3-32b"
+
+
+@pytest.mark.asyncio
+async def test_stream_falls_back_to_default_model_when_user_has_no_override(
+    _mock_chat_persistence,
+):
+    """A user with chat_model=None (fresh account) should see the server
+    default in meta.model — no leaking of a wrong or empty id."""
+    from app.core.config import settings as _settings
+
+    user = _StubUser(chat_model=None)
+    chunks = [_chunk("x.")]
+
+    async def fake_stream(**kwargs):
+        yield "hi"
+
+    state = {
+        "query": "q",
+        "user_id": user.id,
+        "intent": "chat",
+        "chunks": chunks,
+        "graph_facts": [],
+        "used_context": True,
+        "used_graph": False,
+    }
+
+    with (
+        patch.object(rag_router, "prepare_context_state", new=AsyncMock(return_value=state)),
+        patch.object(rag_router, "stream_chat_completion", new=fake_stream),
+        patch.object(
+            rag_router,
+            "verify_answer",
+            new=AsyncMock(
+                return_value=VerificationResult(verdict="verified", groundedness_score=1.0)
+            ),
+        ),
+    ):
+        payload = ChatRequest(query="q", top_k=3)
+        events = _parse_sse(await _drain(rag_router._stream_generator(payload, user, _ctx())))  # type: ignore[arg-type]
+
+    assert events[0][1]["model"] == _settings.groq_reasoning_model
 
 
 @pytest.mark.asyncio
