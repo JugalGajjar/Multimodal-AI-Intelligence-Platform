@@ -63,6 +63,9 @@ worker = [
     "onnxruntime>=1.18",
     "numpy>=1.26,<2.3",
     "opencv-python-headless>=4.10,<5.0",
+    # Office formats — native text extraction, no OCR needed.
+    "python-docx>=1.1,<2.0",
+    "python-pptx>=1.0,<2.0",
 ]
 
 [tool.setuptools.packages.find]

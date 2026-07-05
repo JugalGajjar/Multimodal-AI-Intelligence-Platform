@@ -1,12 +1,17 @@
 """Unit tests for the extraction dispatch pipeline (no ML deps required)."""
 
+from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.workers.ocr.pipeline import (
+    DOCX_MIME,
+    PPTX_MIME,
     decode_text_bytes,
     extract_text_from_bytes,
+    extract_text_from_docx,
+    extract_text_from_pptx,
 )
 
 
@@ -101,3 +106,94 @@ class TestExtractTextFromBytes:
             out = await extract_text_from_bytes(b"%PDF-1.4", "application/pdf")
             fn.assert_called_once()
             assert out == "PDF-MOCK"
+
+    async def test_docx_dispatches_to_docx_path(self):
+        with patch(
+            "app.workers.ocr.pipeline.extract_text_from_docx",
+            return_value="DOCX-MOCK",
+        ) as fn:
+            out = await extract_text_from_bytes(b"PK\x03\x04", DOCX_MIME)
+            fn.assert_called_once()
+            assert out == "DOCX-MOCK"
+
+    async def test_pptx_dispatches_to_pptx_path(self):
+        with patch(
+            "app.workers.ocr.pipeline.extract_text_from_pptx",
+            return_value="PPTX-MOCK",
+        ) as fn:
+            out = await extract_text_from_bytes(b"PK\x03\x04", PPTX_MIME)
+            fn.assert_called_once()
+            assert out == "PPTX-MOCK"
+
+
+def _make_tiny_docx() -> bytes:
+    """Build a minimal in-memory .docx with a paragraph, a heading, and a
+    2x2 table so we can assert real python-docx extraction end-to-end."""
+    from docx import Document  # type: ignore[import-not-found]
+
+    doc = Document()
+    doc.add_heading("Report title", level=1)
+    doc.add_paragraph("First paragraph body.")
+    doc.add_paragraph("")  # blank — must be filtered
+    doc.add_paragraph("Second paragraph body.")
+    table = doc.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "Header A"
+    table.rows[0].cells[1].text = "Header B"
+    table.rows[1].cells[0].text = "Row1 A"
+    table.rows[1].cells[1].text = "Row1 B"
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _make_tiny_pptx(*, include_notes: bool = True) -> bytes:
+    from pptx import Presentation  # type: ignore[import-not-found]
+
+    prs = Presentation()
+    blank_layout = prs.slide_layouts[6]
+    for idx in range(2):
+        slide = prs.slides.add_slide(blank_layout)
+        tb = slide.shapes.add_textbox(0, 0, 500, 500)
+        tb.text_frame.text = f"Slide {idx + 1} body content"
+        if include_notes:
+            slide.notes_slide.notes_text_frame.text = f"Notes for slide {idx + 1}"
+    buf = BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+class TestDocxExtraction:
+    def test_extracts_paragraphs_headings_and_tables(self):
+        out = extract_text_from_docx(_make_tiny_docx())
+        assert "Report title" in out
+        assert "First paragraph body." in out
+        assert "Second paragraph body." in out
+        # Table rows joined with " | " separator.
+        assert "Header A | Header B" in out
+        assert "Row1 A | Row1 B" in out
+        # Blank paragraph filtered out — no empty double-newlines beyond spec.
+        assert "\n\n\n" not in out
+
+    async def test_dispatch_returns_the_same_text_as_direct_extraction(self):
+        # No mock — the dispatch actually invokes the real docx path.
+        raw = _make_tiny_docx()
+        direct = extract_text_from_docx(raw)
+        via_dispatch = await extract_text_from_bytes(raw, DOCX_MIME)
+        assert direct == via_dispatch
+
+
+class TestPptxExtraction:
+    def test_extracts_body_and_speaker_notes_per_slide(self):
+        out = extract_text_from_pptx(_make_tiny_pptx(include_notes=True))
+        assert "--- slide 1 ---" in out
+        assert "--- slide 2 ---" in out
+        assert "Slide 1 body content" in out
+        assert "Slide 2 body content" in out
+        assert "[speaker notes]" in out
+        assert "Notes for slide 1" in out
+        assert "Notes for slide 2" in out
+
+    def test_slides_without_notes_have_no_notes_section(self):
+        out = extract_text_from_pptx(_make_tiny_pptx(include_notes=False))
+        assert "Slide 1 body content" in out
+        assert "[speaker notes]" not in out

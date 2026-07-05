@@ -16,6 +16,8 @@ IMAGE_MIME_PREFIXES = ("image/",)
 PDF_MIME = "application/pdf"
 AUDIO_MIME_PREFIXES = ("audio/",)
 VIDEO_MIME_PREFIXES = ("video/",)
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 _VIDEO_MIME_TO_EXT: dict[str, str] = {
     "video/mp4": "mp4",
@@ -46,6 +48,76 @@ def extract_text_from_pdf(data: bytes) -> str:
         if text.strip():
             parts.append(f"--- page {i} ---\n{text}")
     return "\n\n".join(parts)
+
+
+def extract_text_from_docx(data: bytes) -> str:
+    """Word document text: body paragraphs, table cells, and inline hyperlinks
+    joined in reading order. Empty runs and pure-whitespace paragraphs get
+    dropped so the ingest min-length filter doesn't have to chase them later."""
+    from docx import Document  # type: ignore[import-not-found]
+
+    doc = Document(BytesIO(data))
+    parts: list[str] = []
+    # Iterate document body in order so paragraphs and tables interleave the
+    # way they render in Word — docx.Document exposes only .paragraphs and
+    # .tables lists which lose that ordering, so walk the underlying XML.
+    body = doc.element.body
+    para_tag = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"
+    tbl_tag = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tbl"
+    para_iter = iter(doc.paragraphs)
+    tbl_iter = iter(doc.tables)
+    for child in body.iterchildren():
+        if child.tag == para_tag:
+            p = next(para_iter, None)
+            if p is None:
+                continue
+            text = p.text.strip()
+            if text:
+                parts.append(text)
+        elif child.tag == tbl_tag:
+            t = next(tbl_iter, None)
+            if t is None:
+                continue
+            for row in t.rows:
+                cells = [c.text.strip() for c in row.cells]
+                cells = [c for c in cells if c]
+                if cells:
+                    parts.append(" | ".join(cells))
+    return "\n\n".join(parts)
+
+
+def extract_text_from_pptx(data: bytes) -> str:
+    """PowerPoint text: per-slide body content plus speaker notes. Slides are
+    labeled `--- slide N ---` (mirrors the PDF page markers) so chunk
+    boundaries respect the deck's structure."""
+    from pptx import Presentation  # type: ignore[import-not-found]
+
+    prs = Presentation(BytesIO(data))
+    slides_out: list[str] = []
+    for i, slide in enumerate(prs.slides, start=1):
+        body_parts: list[str] = []
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            for para in shape.text_frame.paragraphs:
+                text = "".join(run.text for run in para.runs).strip()
+                if text:
+                    body_parts.append(text)
+        # Speaker notes often carry the real detail — surface them so RAG
+        # can cite them, marked so chunking treats them as a subsection.
+        notes = ""
+        if slide.has_notes_slide:
+            notes = slide.notes_slide.notes_text_frame.text.strip()
+
+        if not body_parts and not notes:
+            continue
+
+        block = [f"--- slide {i} ---"]
+        block.extend(body_parts)
+        if notes:
+            block.append(f"[speaker notes]\n{notes}")
+        slides_out.append("\n".join(block))
+    return "\n\n".join(slides_out)
 
 
 _AUDIO_MIME_TO_EXT: dict[str, str] = {
@@ -198,6 +270,12 @@ async def extract_text_from_bytes(
 
     if mime == PDF_MIME:
         return await asyncio.to_thread(extract_text_from_pdf, data)
+
+    if mime == DOCX_MIME:
+        return await asyncio.to_thread(extract_text_from_docx, data)
+
+    if mime == PPTX_MIME:
+        return await asyncio.to_thread(extract_text_from_pptx, data)
 
     if mime.startswith(IMAGE_MIME_PREFIXES):
         return await _extract_from_image(data, content_type)

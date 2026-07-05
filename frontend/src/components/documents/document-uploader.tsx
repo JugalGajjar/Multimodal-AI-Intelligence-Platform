@@ -18,7 +18,7 @@ import { uploadDocument } from "@/lib/documents-api";
 import { useAuthStore } from "@/store/auth";
 
 const ACCEPTED =
-  "application/pdf,image/png,image/jpeg,image/webp,audio/mpeg,audio/mp3,audio/wav,video/mp4,video/webm,video/quicktime,text/plain,text/markdown";
+  "application/pdf,image/png,image/jpeg,image/webp,audio/mpeg,audio/mp3,audio/wav,video/mp4,video/webm,video/quicktime,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 export function DocumentUploader({
   compact = false,
@@ -126,7 +126,7 @@ export function DocumentUploader({
               <span className="min-w-0 flex-1 text-sm">
                 <span className="font-medium">Drop a file or click</span>{" "}
                 <span className="hidden text-xs text-muted-foreground sm:inline">
-                  (PDF, image, audio, video, text. 100 MB max.)
+                  (PDF, Word, PowerPoint, image, audio, video, text. 100 MB max.)
                 </span>
               </span>
             )}
@@ -174,7 +174,7 @@ export function DocumentUploader({
           Upload a document
         </CardTitle>
         <CardDescription className="mt-1">
-          PDF, image, audio, video, or text. 100 MB max.
+          PDF, Word, PowerPoint, image, audio, video, or text. 100 MB max.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5 px-4 pt-2 sm:px-6">

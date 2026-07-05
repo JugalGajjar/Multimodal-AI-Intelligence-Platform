@@ -18,6 +18,10 @@ ALLOWED_MIME_TYPES: frozenset[str] = frozenset(
         "video/quicktime",
         "text/plain",
         "text/markdown",
+        # Modern Office XML formats. Legacy .doc / .ppt are out of scope —
+        # they need LibreOffice / antiword and add real image size + flakiness.
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     }
 )
 
