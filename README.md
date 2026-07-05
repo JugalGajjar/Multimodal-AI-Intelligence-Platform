@@ -21,9 +21,10 @@ Upload anything readable. The platform extracts the text (OCR for images, Whispe
 - **Knowledge graph.** Entities and relationships extracted per document, visualized client-side, and used to ground answers.
 - **Cited chat.** Streaming answers with chunk-level citations and a per-answer subgraph highlighting the entities the model used.
 - **Citations that hold up.** Hybrid retrieval (BM25 sparse + dense vectors fused via reciprocal-rank in Qdrant) plus a cross-encoder reranker (`bge-reranker-base`) over the top candidates surfaces the chunk that *answers* your question, not just the topically nearest one. Citation previews are query-centered — the snippet shows the part of the chunk that mentions your terms — and a min-length filter at ingest drops sub-80-char OCR fragments before they reach the index.
-- **Chat controls.** Per-question RAG and Web toggles: answer from your documents (default), the model's own knowledge, fresh Tavily web results with clickable `[W#]` source citations, or any combination.
+- **Chat controls.** Per-question RAG and Web toggles: answer from your documents (default), the model's own knowledge, fresh Tavily web results with clickable `[W#]` source citations, or any combination. A stop button interrupts a slow answer; toggle state survives navigation and resets on New Chat.
+- **Pick your own answer model.** Settings has a dropdown of curated open-source models served through Groq (GPT-OSS 120B default, GPT-OSS 20B, Qwen3 32B). Selecting "Default" follows the app-wide setting; any other choice applies only to your account, and the badge above every answer shows which model actually replied.
 - **Strict and regular modes.** Strict (default) fact-checks every answer against your documents and cited web sources, withholding anything below the grounding threshold; regular blends documents with model knowledge. Configurable per account, along with a 1–10 cap on websites searched.
-- **Persistent chat history.** Every conversation is saved with an auto-generated title and short summary. The dashboard keeps a live session thread that survives client navigation and resets on hard refresh; the Chats page lets you search across titles, summaries, and full message text, rename or delete saved threads, and read transcripts with citations intact. Follow-up questions see prior turns of the same chat.
+- **Persistent chat history.** Every conversation is saved with an auto-generated title and short summary. The dashboard keeps a live session thread that survives navigating between pages and hard refresh in the same tab; the Chats page lets you search across titles, summaries, and full message text, rename or delete saved threads, read transcripts with citations intact, and **Continue** any old chat back on the dashboard so follow-ups append to the same thread. New Chat resets, closing the tab resets, sign-out wipes.
 - **Verification.** Each answer is checked against retrieved context (and web results when used) and flags unsupported claims.
 
 ## Architecture
@@ -72,7 +73,7 @@ The API stays light. All heavy lifting (OCR, ASR, embedding, vision, graph extra
 
 **Data plane.** Postgres for users and document metadata, Qdrant for vector search, Neo4j for the entity graph, Redis for the job queue and rate limiting, S3-compatible object storage (Cloudflare R2 in prod, MinIO in dev) for raw uploads.
 
-**Models.** OpenRouter for vision and video (NVIDIA Nemotron Nano 2 VL) and reasoning (DeepSeek). Groq for audio transcription (Whisper Large v3 Turbo), fast reasoning (GPT-OSS 20B), and structured extraction / verification / summarization (GPT-OSS 120B). Tavily for web-search augmentation.
+**Models.** OpenRouter for vision and video captioning (NVIDIA Nemotron Nano 2 VL). Groq for audio transcription (Whisper Large v3 Turbo), chat answers, and structured extraction / verification / summarization — defaulting to GPT-OSS 120B with GPT-OSS 20B and Qwen3 32B as opt-in alternatives via the Settings page. Tavily for web-search augmentation.
 
 **Tests.** pytest (backend unit and integration), vitest plus Testing Library (frontend), Playwright (end-to-end), with a nightly workflow that spins up the full docker compose stack.
 

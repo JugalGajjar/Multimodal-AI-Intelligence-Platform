@@ -163,7 +163,10 @@ export default function AboutPage() {
                   </Link>
                   , where you can search across titles, summaries, and
                   message text, rename a thread, or delete it. Opening an
-                  old chat shows the full transcript with citations intact.
+                  old chat shows the full transcript with citations
+                  intact, and the <em>Continue</em> button loads that
+                  thread back onto the dashboard so your next question
+                  appends to it.
                 </li>
               </ol>
             }
@@ -194,6 +197,15 @@ export default function AboutPage() {
                   groundedness score is low. Pick regular if you want a
                   hybrid that blends documents with general knowledge and is
                   honest about which is which.
+                </li>
+                <li>
+                  <strong>Pick your own answer model.</strong> Settings
+                  also has an <em>Answer model</em> dropdown. Leave it on{" "}
+                  <em>Default</em> to follow the app-wide setting, or pick
+                  a specific open source model (GPT-OSS 120B, GPT-OSS 20B,
+                  Qwen3 32B) for your account. The badge above every answer
+                  reflects the model that actually replied, so it is easy
+                  to compare.
                 </li>
                 <li>
                   <strong>You can stop a slow answer.</strong> While the
@@ -263,11 +275,14 @@ export default function AboutPage() {
                   index. Neo4j AuraDB holds the entity graph on the side.
                 </li>
                 <li>
-                  <strong>Reasoning.</strong> DeepSeek Flash on OpenRouter
-                  writes the main answer. GPT-OSS 120B on Groq handles
-                  entity extraction, chat summarization, intent routing,
-                  and answer verification. Both run on free tier endpoints
-                  so an idle account costs nothing.
+                  <strong>Reasoning.</strong> Chat answers come from Groq,
+                  defaulting to GPT-OSS 120B. In Settings you can switch
+                  to GPT-OSS 20B or Qwen3 32B for your account; the badge
+                  above every answer shows which model actually replied.
+                  Entity extraction, chat summarization, intent routing,
+                  and answer verification also run on GPT-OSS 120B. All
+                  Groq calls hit free tier endpoints so an idle account
+                  costs nothing.
                 </li>
                 <li>
                   <strong>Verifying.</strong> Every answer is checked
