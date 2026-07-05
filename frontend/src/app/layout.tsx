@@ -1,5 +1,5 @@
 import { Analytics } from "@vercel/analytics/next";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { PostHogProvider } from "@/components/analytics/posthog-provider";
@@ -22,6 +22,16 @@ export const metadata: Metadata = {
   title: "Multimodal AI Intelligence Platform",
   description:
     "Multimodal RAG over text, images, PDFs, audio, and video, with knowledge graphs and agentic reasoning.",
+};
+
+// Explicit viewport export. Without this Next.js sometimes ships no viewport
+// meta at all, and mobile Safari / Chromium fall back to a 980-1080px "legacy
+// desktop" viewport — which renders the page zoomed in and forces users to
+// pinch-out. `viewportFit: "cover"` lets content flow under the notch on iOS.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
