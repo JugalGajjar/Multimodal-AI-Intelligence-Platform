@@ -128,7 +128,10 @@ class TestExtractTextFromBytes:
 
 def _make_tiny_docx() -> bytes:
     """Build a minimal in-memory .docx with a paragraph, a heading, and a
-    2x2 table so we can assert real python-docx extraction end-to-end."""
+    2x2 table so we can assert real python-docx extraction end-to-end.
+    Skips the calling test when python-docx isn't installed — the module
+    lives in the [worker] extras, which CI's unit-test job doesn't pull."""
+    pytest.importorskip("docx")
     from docx import Document  # type: ignore[import-not-found]
 
     doc = Document()
@@ -147,6 +150,9 @@ def _make_tiny_docx() -> bytes:
 
 
 def _make_tiny_pptx(*, include_notes: bool = True) -> bytes:
+    """Skips the calling test when python-pptx isn't installed — same
+    reason as _make_tiny_docx."""
+    pytest.importorskip("pptx")
     from pptx import Presentation  # type: ignore[import-not-found]
 
     prs = Presentation()
