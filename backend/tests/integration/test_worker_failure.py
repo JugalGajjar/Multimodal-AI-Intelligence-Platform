@@ -10,6 +10,7 @@ Asserts:
     failing embed call must be rolled back).
 """
 
+import asyncio
 from io import BytesIO
 from unittest.mock import patch
 from uuid import uuid4
@@ -140,3 +141,31 @@ async def test_missing_document_returns_missing():
     fake_id = uuid4()
     result = await process_document_ocr({}, str(fake_id))
     assert result == "missing"
+
+
+async def test_cancelled_error_marks_doc_as_failed_and_reraises():
+    """arq's job_timeout cancels the task with asyncio.CancelledError, which
+    is a BaseException and was silently missed by `except Exception`. The
+    handler now catches it: doc row flips to FAILED with a helpful message,
+    then the exception is re-raised so arq's own bookkeeping stays correct."""
+    text_body = b"whatever"
+    user, doc = await _create_test_user_and_doc(text_body)
+
+    try:
+        with (
+            patch(
+                "app.workers.ocr.pipeline.extract_text_from_bytes",
+                side_effect=asyncio.CancelledError(),
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await process_document_ocr({}, str(doc.id))
+
+        refreshed = await _read_doc(doc.id)
+        assert refreshed.status == DocumentStatus.FAILED
+        assert refreshed.error_message is not None
+        assert "OCR timed out" in refreshed.error_message
+        assert await _count_chunks_for(doc.id) == 0
+
+    finally:
+        await _cleanup(doc.id, user.id)

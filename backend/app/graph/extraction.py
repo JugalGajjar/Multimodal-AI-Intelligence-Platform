@@ -12,10 +12,23 @@ import asyncio
 import json
 import logging
 import re
+from dataclasses import dataclass
 
 from app.core.config import settings
 from app.graph.schema import ExtractionResult
 from app.rag.groq_chat import GroqChatError, chat_completion
+
+
+@dataclass(frozen=True)
+class ExtractionOutcome:
+    """Outcome of a `safe_extract_entities` call. `transient_failure=True`
+    means the model never produced a valid result (429/400/network) and a
+    retry from the caller is likely to succeed; `transient_failure=False`
+    with an empty result means the model genuinely found no entities."""
+
+    result: ExtractionResult
+    transient_failure: bool
+
 
 log = logging.getLogger("mmap.graph.extraction")
 
@@ -211,13 +224,24 @@ async def extract_entities(text: str) -> ExtractionResult:
     raise GroqChatError(429, {"detail": f"extraction exhausted {MAX_RETRIES} retries"})
 
 
-async def safe_extract_entities(text: str) -> ExtractionResult:
-    # Maps upstream failures to an empty result so the worker never aborts.
+async def safe_extract_entities(text: str) -> ExtractionOutcome:
+    """Wraps `extract_entities` and never raises. Returns an outcome that
+    also tells the caller whether the empty case was due to a transient
+    upstream issue (retry likely to succeed) or a real empty extraction."""
     try:
-        return await extract_entities(text)
+        return ExtractionOutcome(
+            result=await extract_entities(text),
+            transient_failure=False,
+        )
     except GroqChatError as exc:
         log.warning("extraction upstream failure (%s): %s", exc.status_code, exc.body)
-        return ExtractionResult(entities=[], relationships=[])
+        return ExtractionOutcome(
+            result=ExtractionResult(entities=[], relationships=[]),
+            transient_failure=True,
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("extraction unexpected failure: %s", exc)
-        return ExtractionResult(entities=[], relationships=[])
+        return ExtractionOutcome(
+            result=ExtractionResult(entities=[], relationships=[]),
+            transient_failure=True,
+        )

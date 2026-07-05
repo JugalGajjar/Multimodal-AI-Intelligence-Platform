@@ -72,9 +72,10 @@ async def test_safe_extract_swallows_upstream_errors():
         "app.graph.extraction.chat_completion",
         new=AsyncMock(side_effect=GroqChatError(429, {"detail": "rate limited"})),
     ):
-        result = await extraction.safe_extract_entities("anything")
+        outcome = await extraction.safe_extract_entities("anything")
 
-    assert result == ExtractionResult()
+    assert outcome.result == ExtractionResult()
+    assert outcome.transient_failure is True
 
 
 async def test_safe_extract_swallows_unexpected_errors():
@@ -82,9 +83,22 @@ async def test_safe_extract_swallows_unexpected_errors():
         "app.graph.extraction.chat_completion",
         new=AsyncMock(side_effect=RuntimeError("boom")),
     ):
-        result = await extraction.safe_extract_entities("anything")
+        outcome = await extraction.safe_extract_entities("anything")
 
-    assert result == ExtractionResult()
+    assert outcome.result == ExtractionResult()
+    assert outcome.transient_failure is True
+
+
+async def test_safe_extract_genuine_empty_is_not_transient(monkeypatch):
+    """When the model returns a well-formed empty extraction, the outcome
+    should NOT be flagged as transient — retrying would just spam Groq."""
+    monkeypatch.setattr(
+        "app.graph.extraction.chat_completion",
+        AsyncMock(return_value='{"entities": [], "relationships": []}'),
+    )
+    outcome = await extraction.safe_extract_entities("hello world")
+    assert outcome.result == ExtractionResult()
+    assert outcome.transient_failure is False
 
 
 async def test_truncates_long_input(monkeypatch):
@@ -211,8 +225,9 @@ async def test_safe_extract_returns_empty_after_retries_exhausted(monkeypatch):
 
     monkeypatch.setattr("app.graph.extraction.asyncio.sleep", fake_sleep)
 
-    result = await extraction.safe_extract_entities("anything")
-    assert result == ExtractionResult()
+    outcome = await extraction.safe_extract_entities("anything")
+    assert outcome.result == ExtractionResult()
+    assert outcome.transient_failure is True
 
 
 async def test_uses_extraction_model_not_reasoning_model(monkeypatch):

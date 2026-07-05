@@ -96,16 +96,32 @@ async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
                 await _summarize_and_store(text=text, document_id=str(doc.id))
             return "processed"
 
-        except Exception as exc:  # noqa: BLE001
+        except (Exception, asyncio.CancelledError) as exc:
+            # asyncio.CancelledError is a BaseException in 3.8+, so plain
+            # `except Exception` missed it — arq's job-timeout cancel would
+            # bypass this handler entirely and leave the doc row wedged at
+            # `processing` forever. Catch both and re-raise CancelledError
+            # after our cleanup so arq still records the timeout correctly.
+            timed_out = isinstance(exc, asyncio.CancelledError)
             log.exception("ocr pipeline failed for doc=%s", document_id)
             # Discard pending chunk inserts so we don't persist orphan rows
             # whose vectors never reached Qdrant.
-            await db.rollback()
-            failed_doc = await db.get(Document, document_id)
-            if failed_doc is not None:
-                failed_doc.status = DocumentStatus.FAILED
-                failed_doc.error_message = str(exc)
-                await db.commit()
+            try:
+                await db.rollback()
+                failed_doc = await db.get(Document, document_id)
+                if failed_doc is not None:
+                    failed_doc.status = DocumentStatus.FAILED
+                    failed_doc.error_message = (
+                        "OCR timed out — try a smaller or text-based PDF."
+                        if timed_out
+                        else str(exc)
+                    )
+                    await db.commit()
+            except Exception:
+                log.exception("failed to record failure status for doc=%s", document_id)
+            if timed_out:
+                # Let arq see the cancel so its own bookkeeping stays right.
+                raise
             return "failed"
 
 
@@ -161,6 +177,10 @@ def _upsert_qdrant_points(
     client.upsert(collection_name=COLLECTION_NAME, points=points, wait=True)
 
 
+GRAPH_EXTRACT_MAX_ATTEMPTS = 3
+GRAPH_EXTRACT_BACKOFF_SECONDS = (15, 30)  # sleep between attempt 1→2 and 2→3
+
+
 async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
     # Best-effort: swallow errors so the worker stays non-blocking.
     try:
@@ -171,10 +191,33 @@ async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
             upsert_relationship,
         )
 
-        result = await safe_extract_entities(text)
-        if not result.entities:
-            log.info("graph: no entities extracted for doc=%s", document_id)
+        # Groq's json_object validator flakes intermittently — the same
+        # extraction that returned 0 entities on upload will often return
+        # 20+ on a manual reindex 60-120s later. Retry transient failures
+        # in-line so the user's graph populates without a manual click.
+        outcome = await safe_extract_entities(text)
+        for attempt in range(2, GRAPH_EXTRACT_MAX_ATTEMPTS + 1):
+            if outcome.result.entities or not outcome.transient_failure:
+                break
+            sleep_for = GRAPH_EXTRACT_BACKOFF_SECONDS[attempt - 2]
+            log.info(
+                "graph: transient extraction failure on doc=%s (attempt %d/%d) — sleeping %ds",
+                document_id,
+                attempt - 1,
+                GRAPH_EXTRACT_MAX_ATTEMPTS,
+                sleep_for,
+            )
+            await asyncio.sleep(sleep_for)
+            outcome = await safe_extract_entities(text)
+
+        if not outcome.result.entities:
+            log.info(
+                "graph: no entities extracted for doc=%s (transient=%s)",
+                document_id,
+                outcome.transient_failure,
+            )
             return
+        result = outcome.result
 
         await ensure_indexes()
         for e in result.entities:

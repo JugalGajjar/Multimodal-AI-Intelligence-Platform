@@ -27,7 +27,10 @@ class WorkerSettings:
     keep_result_forever = False
     keep_result = 60
     max_jobs = 4
-    job_timeout = 300  # 5 min per job
+    # 10 min per job — scan-heavy PDFs and long audio files push OCR / Whisper
+    # past 5 min. The tasks catch CancelledError so a timeout still surfaces
+    # to the user as status=failed with a helpful error_message.
+    job_timeout = 600
     # arq polls Redis at this interval to check for new jobs; idle workers
     # still pay per poll. Default 0.5s = ~5M req/mo, far over Upstash's
     # 500K free tier. 6.5s = ~399K/mo (~20% headroom) with ~6.5s worst-case
