@@ -6,13 +6,23 @@ import { usePathname } from "next/navigation";
 import { BrandMark } from "@/components/layout/brand-mark";
 import { ABOUT_ITEM, NAV_ITEMS } from "@/components/layout/nav-items";
 
-export function Sidebar() {
+export function Sidebar({ sticky = false }: { sticky?: boolean } = {}) {
   const pathname = usePathname() ?? "";
+
+  // When the shell is in page-scroll mode, the sidebar sticks to the viewport
+  // top so it stays visible while the main column scrolls the page. Height is
+  // pinned to the viewport so the About footer card still sits at the bottom.
+  const stickyClasses = sticky
+    ? "lg:sticky lg:top-0 lg:h-svh lg:self-start"
+    : "";
 
   return (
     <aside
       data-testid="app-sidebar"
-      className="hidden lg:flex lg:w-60 lg:shrink-0 lg:flex-col lg:border-r lg:border-sidebar-border lg:bg-sidebar/80 lg:backdrop-blur-xl"
+      className={
+        "hidden lg:flex lg:w-60 lg:shrink-0 lg:flex-col lg:border-r lg:border-sidebar-border lg:bg-sidebar/80 lg:backdrop-blur-xl " +
+        stickyClasses
+      }
     >
       <div className="flex h-16 items-center px-5">
         <BrandMark size="md" />

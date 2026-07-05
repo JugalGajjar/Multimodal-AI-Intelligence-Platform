@@ -178,15 +178,15 @@ export function DocumentsList() {
             <div className="space-y-1">
               <p className="text-sm font-medium">No documents yet</p>
               <p className="text-xs text-muted-foreground">
-                Drop a file in the panel above. PDFs, images, audio, video,
-                or text.
+                Drop a file in the panel above. PDFs, Word, PowerPoint,
+                images, audio, video, or text.
               </p>
             </div>
           </div>
         )}
         {data && data.items.length > 0 && (
           <ul
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
+            className="space-y-3"
             data-testid="documents-scroll"
           >
             {data.items.map((doc) => {

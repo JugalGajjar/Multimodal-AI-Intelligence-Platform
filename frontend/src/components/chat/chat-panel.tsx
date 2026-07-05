@@ -96,7 +96,6 @@ export function ChatPanel() {
   const [stream, setStream] = useState<StreamState>(INITIAL_STREAM);
   const pending = stream.status === "streaming";
 
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -117,20 +116,31 @@ export function ChatPanel() {
     resizeTextarea();
   }, [query, resizeTextarea]);
 
+  // Track how close the page-scroll position is to the bottom so we know
+  // whether to auto-follow new tokens. Uses window scroll now that the shell
+  // is in page-scroll mode — the chat thread flows naturally, no inner box.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onWindowScroll = () => {
+      const docHeight = document.documentElement.scrollHeight;
+      const clientHeight = window.innerHeight;
+      nearBottomRef.current =
+        docHeight - window.scrollY - clientHeight < STICK_TO_BOTTOM_PX;
+    };
+    // Prime the initial value.
+    onWindowScroll();
+    window.addEventListener("scroll", onWindowScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onWindowScroll);
+  }, []);
+
   // Stick to bottom only if the user was already there — don't yank them up.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el && nearBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
-    }
+    if (typeof window === "undefined" || !nearBottomRef.current) return;
+    window.scrollTo({
+      top: document.documentElement.scrollHeight,
+      behavior: "auto",
+    });
   }, [stream.text, turns.length, pending]);
-
-  function onScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    nearBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < STICK_TO_BOTTOM_PX;
-  }
 
   function onNewChat() {
     if (pending) return;
@@ -299,12 +309,7 @@ export function ChatPanel() {
         )}
 
         {hasThread && (
-          <div
-            ref={scrollRef}
-            onScroll={onScroll}
-            className="max-h-[60svh] space-y-6 overflow-y-auto pr-1"
-            data-testid="chat-thread"
-          >
+          <div className="space-y-6" data-testid="chat-thread">
             {turns.map((turn) => (
               <div key={turn.id} className="space-y-2" data-testid="chat-turn">
                 <QuestionBubble question={turn.question} />

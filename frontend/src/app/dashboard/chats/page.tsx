@@ -9,8 +9,8 @@ import { AppShell } from "@/components/layout/app-shell";
 export default function ChatsPage() {
   return (
     <AuthGate>
-      <AppShell>
-        <div className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6">
+      <AppShell scrollMode="page">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
           <header className="flex flex-col gap-2">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Workspace
@@ -28,9 +28,7 @@ export default function ChatsPage() {
               read its transcript.
             </p>
           </header>
-          <div className="flex min-h-0 flex-1 flex-col gap-6">
-            <ChatsList />
-          </div>
+          <ChatsList />
         </div>
       </AppShell>
     </AuthGate>

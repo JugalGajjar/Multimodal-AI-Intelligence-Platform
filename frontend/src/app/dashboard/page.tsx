@@ -15,7 +15,7 @@ import { useChatSessionStore } from "@/store/chat-session";
 export default function DashboardPage() {
   return (
     <AuthGate>
-      <AppShell>
+      <AppShell scrollMode="page">
         <DashboardInner />
       </AppShell>
     </AuthGate>
@@ -59,8 +59,9 @@ function DashboardInner() {
             })()}
           </h1>
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Upload anything readable: PDFs, images, audio, video, text. Then
-            chat over it with citations and a live knowledge graph.
+            Upload anything readable: PDFs, Word, PowerPoint, images, audio,
+            video, text. Then chat over it with citations and a live
+            knowledge graph.
           </p>
         </header>
       )}
