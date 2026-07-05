@@ -1,57 +1,10 @@
 "use client";
 
-import {
-  BookOpen,
-  Files,
-  History,
-  LayoutDashboard,
-  Network,
-  Settings,
-} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { BrandMark } from "@/components/layout/brand-mark";
-
-type NavItem = {
-  href: string;
-  label: string;
-  Icon: typeof LayoutDashboard;
-  match?: (pathname: string) => boolean;
-};
-
-const NAV: NavItem[] = [
-  {
-    href: "/dashboard",
-    label: "Dashboard",
-    Icon: LayoutDashboard,
-    match: (p) => p === "/dashboard",
-  },
-  {
-    href: "/dashboard/documents",
-    label: "Your documents",
-    Icon: Files,
-    match: (p) => p.startsWith("/dashboard/documents"),
-  },
-  {
-    href: "/dashboard/chats",
-    label: "Chats",
-    Icon: History,
-    match: (p) => p.startsWith("/dashboard/chats"),
-  },
-  {
-    href: "/dashboard/graph",
-    label: "Knowledge graph",
-    Icon: Network,
-    match: (p) => p.startsWith("/dashboard/graph"),
-  },
-  {
-    href: "/dashboard/settings",
-    label: "Settings",
-    Icon: Settings,
-    match: (p) => p.startsWith("/dashboard/settings"),
-  },
-];
+import { ABOUT_ITEM, NAV_ITEMS } from "@/components/layout/nav-items";
 
 export function Sidebar() {
   const pathname = usePathname() ?? "";
@@ -66,7 +19,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-4 py-2" aria-label="Primary">
-        {NAV.map(({ href, label, Icon, match }) => {
+        {NAV_ITEMS.map(({ href, label, Icon, match }) => {
           const active = match ? match(pathname) : pathname === href;
           return (
             <Link
@@ -98,11 +51,11 @@ export function Sidebar() {
 
       <div className="border-t border-sidebar-border px-5 py-5">
         <Link
-          href="/dashboard/about"
+          href={ABOUT_ITEM.href}
           data-testid="nav-about"
           className="group flex items-start gap-2.5 rounded-lg bg-sidebar-accent/40 p-3.5 text-xs leading-relaxed text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
-          <BookOpen
+          <ABOUT_ITEM.Icon
             aria-hidden="true"
             className="mt-0.5 size-3.5 shrink-0 text-[color:var(--accent-violet)]"
           />

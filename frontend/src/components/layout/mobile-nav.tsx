@@ -1,24 +1,12 @@
 "use client";
 
-import {
-  Files,
-  LayoutDashboard,
-  Network,
-  Settings,
-  X,
-} from "lucide-react";
+import { X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 import { BrandMark } from "@/components/layout/brand-mark";
-
-const NAV = [
-  { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/dashboard/documents", label: "Your documents", Icon: Files },
-  { href: "/dashboard/graph", label: "Knowledge graph", Icon: Network },
-  { href: "/dashboard/settings", label: "Settings", Icon: Settings },
-];
+import { ABOUT_ITEM, NAV_ITEMS } from "@/components/layout/nav-items";
 
 export function MobileNav({
   open,
@@ -60,17 +48,15 @@ export function MobileNav({
           </button>
         </div>
         <nav className="flex-1 space-y-1 px-3" aria-label="Mobile">
-          {NAV.map(({ href, label, Icon }) => {
-            const active =
-              href === "/dashboard"
-                ? pathname === "/dashboard"
-                : pathname.startsWith(href);
+          {[...NAV_ITEMS, ABOUT_ITEM].map(({ href, label, Icon, match }) => {
+            const active = match ? match(pathname) : pathname === href;
             return (
               <Link
                 key={href}
                 href={href}
                 onClick={onClose}
                 aria-current={active ? "page" : undefined}
+                data-testid={`mobile-nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
                 className={
                   "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
                   (active
