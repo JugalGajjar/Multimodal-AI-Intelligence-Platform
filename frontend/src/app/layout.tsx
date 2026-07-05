@@ -21,7 +21,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Multimodal AI Intelligence Platform",
   description:
-    "Multimodal RAG over text, images, PDFs, audio, and video, with knowledge graphs and agentic reasoning.",
+    "Multimodal RAG over text, PDFs, Word, PowerPoint, images, audio, and video, with knowledge graphs and agentic reasoning.",
 };
 
 // Explicit viewport export. Without this Next.js sometimes ships no viewport

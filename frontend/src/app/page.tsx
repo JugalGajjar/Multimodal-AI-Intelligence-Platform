@@ -9,29 +9,31 @@ const FEATURES = [
   {
     Icon: FileText,
     title: "Multimodal ingest",
-    body: "PDFs, images, audio, video, and text. All extracted, chunked, and embedded into a shared vector space.",
+    body: "PDFs, Word, PowerPoint, images, audio, video, and text. All in one shared library you can chat over.",
   },
   {
     Icon: ImageIcon,
     title: "Vision + OCR",
-    body: "RapidOCR + a vision-language model give every image a searchable, summarized representation.",
+    body: "Every image is turned into searchable text and a short description of what is shown.",
   },
   {
     Icon: Mic,
     title: "Audio transcription",
-    body: "Groq Whisper turns recordings into citable, retrievable text. Instantly.",
+    body: "Meetings and voice notes become citable text you can chat with.",
   },
   {
     Icon: Network,
     title: "Knowledge graph",
-    body: "Entities and relationships extracted from your docs, visualized and used to ground answers.",
+    body: "Entities and relationships pulled from your docs, visualized and used to ground answers.",
   },
 ];
 
 export default function Home() {
   return (
-    <div className="flex min-h-svh flex-col">
-      <header className="flex items-center justify-between px-6 py-5 sm:px-10">
+    // Mobile grows naturally (min-h-svh). Desktop (lg+) is locked to the
+    // viewport so the whole page fits without scroll.
+    <div className="flex min-h-svh flex-col lg:h-svh lg:overflow-hidden">
+      <header className="flex shrink-0 items-center justify-between px-6 py-5 sm:px-10">
         <BrandMark size="md" />
         <div className="flex items-center gap-3">
           <ThemeToggle />
@@ -44,19 +46,20 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-16 sm:py-24">
-        <section className="flex max-w-3xl flex-col items-center gap-8 text-center">
-          <h1 className="text-4xl font-semibold leading-[1.1] tracking-tight sm:text-6xl">
+      <main className="flex flex-1 flex-col items-center justify-center gap-10 px-6 pb-10 sm:gap-14 sm:pb-16 lg:gap-10 lg:pb-8">
+        <section className="flex max-w-3xl flex-col items-center gap-6 text-center">
+          <h1 className="text-3xl font-semibold leading-[1.1] tracking-tight sm:text-5xl lg:text-6xl">
             Chat with everything
             <br />
-            <span className="text-gradient-brand">you’ve ever uploaded.</span>
+            <span className="text-gradient-brand">you&rsquo;ve ever uploaded.</span>
           </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Multimodal RAG over text, images, PDFs, audio, and video, with a
-            live knowledge graph and grounded, cited answers.
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+            Multimodal RAG over text, PDFs, Word, PowerPoint, images, audio,
+            and video, with a live knowledge graph and grounded, cited
+            answers.
           </p>
 
-          <div className="mt-4 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
+          <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
             <Link
               href="/register"
               className={
@@ -78,20 +81,20 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="mt-20 grid w-full max-w-5xl gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid w-full max-w-5xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map(({ Icon, title, body }) => (
             <article
               key={title}
-              className="glass group rounded-xl p-6 transition-transform hover:-translate-y-1"
+              className="glass group rounded-xl p-5 transition-transform hover:-translate-y-1"
             >
               <span
                 aria-hidden="true"
-                className="mb-4 inline-flex size-10 items-center justify-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
+                className="mb-3 inline-flex size-9 items-center justify-center rounded-lg bg-gradient-brand text-brand-foreground glow-brand"
               >
                 <Icon className="size-4" />
               </span>
               <h3 className="text-sm font-semibold">{title}</h3>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
                 {body}
               </p>
             </article>

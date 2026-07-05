@@ -6,18 +6,19 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 
-Retrieval-augmented chat over text, PDFs, images, audio, and video, with a live knowledge graph extracted from your uploads, optional web-search augmentation, persistent multi-turn chat history, and grounded, cited answers.
+Retrieval-augmented chat over text, PDFs, Word documents, PowerPoint decks, images, audio, and video, with a live knowledge graph extracted from your uploads, optional web-search augmentation, persistent multi-turn chat history, and grounded, cited answers.
 
 Live at **[projectmmap.com](https://projectmmap.com)**.
 
 ## What it does
 
-Upload anything readable. The platform extracts the text (OCR for images, Whisper for audio, frame sampling plus transcription for video, native parse for PDFs and text), chunks and embeds it, indexes the chunks in a vector store, pulls entities and relationships into a knowledge graph, and then lets you chat over everything with citations back to the source chunks.
+Upload anything readable. The platform extracts the text (OCR for images, Whisper for audio, frame sampling plus transcription for video, native parse for PDFs, Word, PowerPoint, and plain text), chunks and embeds it, indexes the chunks in a vector store, pulls entities and relationships into a knowledge graph, and then lets you chat over everything with citations back to the source chunks.
 
-- **Multimodal ingest.** PDFs, images, audio, video, plain text, markdown. One shared vector space. 100 MB upload cap.
+- **Multimodal ingest.** PDFs, Word (.docx), PowerPoint (.pptx), images, audio, video, plain text, markdown. One shared vector space. 100 MB upload cap.
 - **Vision plus OCR.** RapidOCR plus a vision-language model give every image a searchable, summarized representation.
 - **Audio transcription.** Groq Whisper turns recordings into citable, retrievable text.
 - **Video understanding.** Adaptive frame sampling (cv2) plus audio extraction (ffmpeg) feed a single fused Nemotron VL call with the Whisper transcript embedded as document context — the model cross-references what's said against what's shown. 5-minute cap.
+- **Office documents.** Word (.docx) and PowerPoint (.pptx) parsed natively — no OCR needed. Deck slides are chunked per slide with speaker notes preserved so citations point at the exact slide the answer came from.
 - **Knowledge graph.** Entities and relationships extracted per document, visualized client-side, and used to ground answers.
 - **Cited chat.** Streaming answers with chunk-level citations and a per-answer subgraph highlighting the entities the model used.
 - **Citations that hold up.** Hybrid retrieval (BM25 sparse + dense vectors fused via reciprocal-rank in Qdrant) plus a cross-encoder reranker (`bge-reranker-base`) over the top candidates surfaces the chunk that *answers* your question, not just the topically nearest one. Citation previews are query-centered — the snippet shows the part of the chunk that mentions your terms — and a min-length filter at ingest drops sub-80-char OCR fragments before they reach the index.

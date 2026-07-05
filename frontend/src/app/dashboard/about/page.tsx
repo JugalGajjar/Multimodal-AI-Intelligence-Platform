@@ -131,14 +131,17 @@ export default function AboutPage() {
                   >
                     Your documents
                   </Link>{" "}
-                  and drop in a file. PDFs, images, audio (mp3, wav), video
-                  (mp4, webm, mov up to five minutes), or plain text and
-                  markdown. The cap is 100 MB per file.
+                  and drop in a file. PDFs, Word documents (.docx), PowerPoint
+                  decks (.pptx), images, audio (mp3, wav), video (mp4, webm,
+                  mov up to five minutes), or plain text and markdown. The
+                  cap is 100 MB per file.
                 </li>
                 <li>
                   Wait for the status badge to flip to{" "}
                   <em>processed</em>. Big files take longer because the worker
-                  is doing OCR, Whisper, and embedding in the background.
+                  is doing OCR, Whisper, and embedding in the background. If
+                  it flips to <em>failed</em>, hover the badge to read why
+                  and try a smaller or text-based version of the file.
                 </li>
                 <li>
                   Come back to the{" "}
@@ -255,11 +258,14 @@ export default function AboutPage() {
               <ul className="space-y-2 text-sm leading-relaxed">
                 <li>
                   <strong>Reading.</strong> RapidOCR for images, Whisper
-                  Large v3 Turbo on Groq for audio, native parse for PDFs
-                  and text. Video samples up to 30 adaptive frames plus the
-                  audio track, then feeds all of it into a single Nemotron
-                  Nano 2 VL call so the model can cross reference what is
-                  said against what is shown.
+                  Large v3 Turbo on Groq for audio, native parse for PDFs,
+                  Word, PowerPoint, and plain text. Video samples up to 30
+                  adaptive frames plus the audio track, then feeds all of
+                  it into a single Nemotron Nano 2 VL call so the model
+                  can cross reference what is said against what is shown.
+                  PowerPoint slides are chunked per slide and speaker
+                  notes are preserved so citations point at the exact
+                  slide the answer came from.
                 </li>
                 <li>
                   <strong>Indexing.</strong> Each chunk is embedded twice.
