@@ -5,6 +5,13 @@ import type { NextConfig } from "next";
 //  - 'self' for our own JS/CSS
 //  - inline script/style (React hydration + Tailwind runtime classes)
 //  - the backend API origin for fetch() — configured via NEXT_PUBLIC_API_URL
+//  - PostHog origins when analytics/session-recording are configured:
+//      • connect-src: event ingestion + config /decide endpoint
+//      • script-src: rrweb recorder.js is loaded remotely from the assets host
+//        when session recording is on
+//      • img-src: heatmap / canvas capture uses data: pixels from PostHog
+//      • worker-src 'self' blob:: rrweb compresses recording chunks in a
+//        blob-URL web worker — blocked by default under strict CSP
 const apiOrigin = (() => {
   const raw = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
   try {
@@ -15,17 +22,50 @@ const apiOrigin = (() => {
   }
 })();
 
-const CSP = [
+// PostHog Cloud regions publish assets on a sibling `-assets` subdomain:
+//   us.i.posthog.com     → us-assets.i.posthog.com
+//   eu.i.posthog.com     → eu-assets.i.posthog.com
+// We derive both so eu-hosted projects work with no extra config.
+const posthogOrigins = (() => {
+  const raw = process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim();
+  if (!raw) return [] as string[];
+  try {
+    const u = new URL(raw);
+    const eventOrigin = `${u.protocol}//${u.host}`;
+    const assetsHost = u.host.replace(".i.posthog.com", "-assets.i.posthog.com");
+    const assetsOrigin = `${u.protocol}//${assetsHost}`;
+    return assetsOrigin === eventOrigin
+      ? [eventOrigin]
+      : [eventOrigin, assetsOrigin];
+  } catch {
+    return [] as string[];
+  }
+})();
+
+const posthogConfigured = posthogOrigins.length > 0;
+
+const connectSources = ["'self'", apiOrigin, ...posthogOrigins].join(" ");
+const scriptSources = ["'self'", "'unsafe-inline'", ...posthogOrigins].join(" ");
+const imgSources = ["'self'", "data:", "blob:", ...posthogOrigins].join(" ");
+
+const cspDirectives = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src ${scriptSources}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src ${imgSources}`,
   "font-src 'self' data:",
-  `connect-src 'self' ${apiOrigin}`,
+  `connect-src ${connectSources}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
-].join("; ");
+];
+if (posthogConfigured) {
+  // rrweb (used by PostHog session recording) instantiates its compression
+  // worker from a Blob URL — `worker-src 'self' blob:` unblocks that path.
+  // Not added when PostHog is unset, so dev/preview keep the tighter default.
+  cspDirectives.push("worker-src 'self' blob:");
+}
+const CSP = cspDirectives.join("; ");
 
 const SECURITY_HEADERS = [
   {
