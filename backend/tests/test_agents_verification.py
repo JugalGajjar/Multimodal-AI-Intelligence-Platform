@@ -358,3 +358,45 @@ class TestStrictRefusalFor:
         monkeypatch.setattr(ver.settings, "strict_groundedness_threshold", 0.95)
         out = ver.strict_refusal_for(self._result(0.9), rag_mode="strict", use_rag=True)
         assert out is not None
+
+
+class TestSystemPromptStrictness:
+    """The verifier prompt must encode the failure modes we care about — these
+    were real bugs (workshop-vs-conference, presented-vs-reviewed) that a
+    permissive prompt let through in prod. Test the contract, not the exact
+    wording, so minor prose tweaks don't break the suite."""
+
+    def test_prompt_names_terminology_drift_as_a_failure_mode(self):
+        assert "workshop" in ver.SYSTEM_PROMPT.lower()
+        assert "conference" in ver.SYSTEM_PROMPT.lower()
+
+    def test_prompt_names_attribution_drift_as_a_failure_mode(self):
+        # "presented"/"reviewed" pair should appear as a contrast example.
+        low = ver.SYSTEM_PROMPT.lower()
+        assert "presented" in low
+        assert "reviewed" in low
+
+    def test_prompt_requires_verbatim_quote_evidence(self):
+        low = ver.SYSTEM_PROMPT.lower()
+        assert "verbatim" in low
+        assert "quote" in low
+
+    def test_prompt_covers_quantity_and_date_drift(self):
+        low = ver.SYSTEM_PROMPT.lower()
+        # Numbers / years / versions must all match the context.
+        assert "year" in low
+        # Date/quantity terminology.
+        assert "date" in low or "quantity" in low or "percentage" in low
+
+    def test_prompt_covers_entity_existence(self):
+        # Named entities absent from context → unsupported.
+        low = ver.SYSTEM_PROMPT.lower()
+        assert "entity" in low
+        assert "absent" in low or "not appear" in low or "cannot copy" in low
+
+    def test_prompt_biases_toward_unsupported_when_in_doubt(self):
+        # Explicit instruction to prefer UNSUPPORTED over UNCERTAIN — models
+        # tend to hedge otherwise.
+        low = ver.SYSTEM_PROMPT.lower()
+        assert "unsupported" in low and "uncertain" in low
+        assert "bias" in low or "prefer" in low
