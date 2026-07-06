@@ -4,6 +4,16 @@ from app.rag.graph_expansion import GraphFact
 from app.rag.retrieval import RetrievedChunk
 from app.rag.tavily import WebResult
 
+CITATION_FORMAT_RULES = (
+    "Citation format (STRICT): use ASCII square brackets only. Passages are "
+    "cited as [1], [2], [3] and so on. Web results are cited as [W1], [W2], "
+    "[W3]. Do NOT use full-width brackets like 【1】 or 【W1】, do NOT use "
+    "parentheses like (1) or (W1), and do NOT combine adjacent citations "
+    "into ranges like [1-3]; write them separately as [1][2][3]. Every "
+    "opening bracket must be a plain '[' and every closing bracket a plain "
+    "']'. This exact formatting is required for every citation, every time."
+)
+
 SYSTEM_PROMPT = (
     "You are a precise research assistant for the user's uploaded documents. "
     "Answer the user's question using ONLY the numbered context passages and "
@@ -11,16 +21,18 @@ SYSTEM_PROMPT = (
     "and when you rely on a graph fact mention the entity name explicitly. "
     "If web results are provided they are additional citable context — cite "
     "them inline with [W#] markers. "
-    "If the available context does not contain enough information to answer, "
-    "say so explicitly — do not invent facts."
+    + CITATION_FORMAT_RULES
+    + " If the available context does not contain enough information to "
+    "answer, say so explicitly — do not invent facts."
 )
 
 REGULAR_MODE_SYSTEM = (
     "You are a research assistant for the user's uploaded documents. Prefer "
     "the numbered context passages and knowledge-graph facts below; cite "
     "passages inline with [N] markers and web results with [W#] markers. "
-    "You may supplement with your own knowledge when the context is thin — "
-    "do not attach citation markers to statements that come from your own "
+    + CITATION_FORMAT_RULES
+    + " You may supplement with your own knowledge when the context is thin "
+    "— do not attach citation markers to statements that come from your own "
     "knowledge, and never invent citations."
 )
 
@@ -36,7 +48,7 @@ WEB_ONLY_SYSTEM = (
     "Answer the user's question using the numbered web results below, "
     "supplemented by your own knowledge where helpful. Cite web results "
     "inline with [W#] markers; do not attach markers to statements from "
-    "your own knowledge."
+    "your own knowledge. " + CITATION_FORMAT_RULES
 )
 
 NO_CONTEXT_FALLBACK_SYSTEM = (

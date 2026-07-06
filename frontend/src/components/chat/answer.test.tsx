@@ -65,6 +65,53 @@ describe("<Answer />", () => {
     });
   });
 
+  describe("citation-bracket normalization", () => {
+    it("rewrites full-width brackets 【W1】 as ASCII [W1]", () => {
+      const raw = "Frontier level performance【W1】. Serves users【W3】【W5】.";
+      render(<Answer response={baseResponse(raw)} />);
+      const text = screen.getByTestId("chat-answer-text").textContent ?? "";
+      expect(text).toContain("[W1]");
+      expect(text).toContain("[W3]");
+      expect(text).toContain("[W5]");
+      expect(text).not.toMatch(/【/);
+      expect(text).not.toMatch(/】/);
+    });
+
+    it("rewrites full-width numeric citations 【1】 as [1]", () => {
+      const raw = "Per the paper【1】, the score is 0.9【2】.";
+      render(<Answer response={baseResponse(raw)} />);
+      const text = screen.getByTestId("chat-answer-text").textContent ?? "";
+      expect(text).toContain("[1]");
+      expect(text).toContain("[2]");
+      expect(text).not.toMatch(/【/);
+    });
+
+    it("rewrites full-width parens like （W1） and （2） too", () => {
+      const raw = "According to （W1） and （2）, this is the case.";
+      render(<Answer response={baseResponse(raw)} />);
+      const text = screen.getByTestId("chat-answer-text").textContent ?? "";
+      expect(text).toContain("[W1]");
+      expect(text).toContain("[2]");
+      expect(text).not.toMatch(/（/);
+    });
+
+    it("leaves ASCII citations [W1] / [1] untouched", () => {
+      const raw = "See [W1] and [1] for details.";
+      render(<Answer response={baseResponse(raw)} />);
+      const text = screen.getByTestId("chat-answer-text").textContent ?? "";
+      expect(text).toContain("[W1]");
+      expect(text).toContain("[1]");
+    });
+
+    it("tolerates whitespace inside full-width brackets", () => {
+      const raw = "Line one【 W1 】 line two【 12 】";
+      render(<Answer response={baseResponse(raw)} />);
+      const text = screen.getByTestId("chat-answer-text").textContent ?? "";
+      expect(text).toContain("[W1]");
+      expect(text).toContain("[12]");
+    });
+  });
+
   describe("prompt-injection / XSS defence", () => {
     // Suppress noisy rehype-sanitize warnings during these tests.
     let warnSpy: ReturnType<typeof vi.spyOn>;

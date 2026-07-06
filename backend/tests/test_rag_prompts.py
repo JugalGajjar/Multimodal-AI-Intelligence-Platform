@@ -251,3 +251,43 @@ class TestModeSystemPrompts:
         from app.rag.prompts import STRICT_REFUSAL_MESSAGE
 
         assert "Settings" in STRICT_REFUSAL_MESSAGE
+
+
+class TestCitationFormatSpec:
+    """Prompts must explicitly ban full-width brackets / parens for citations
+    so CJK-tuned models (Qwen etc.) don't drift into 【1】 / 【W1】 output."""
+
+    def test_strict_prompt_bans_full_width_brackets(self):
+        from app.rag.prompts import SYSTEM_PROMPT
+
+        assert "【" in SYSTEM_PROMPT and "】" in SYSTEM_PROMPT
+        # A phrase like "Do NOT use full-width brackets like 【1】" must be
+        # present so the model sees the counter-example explicitly.
+        assert "full-width" in SYSTEM_PROMPT.lower()
+        assert "ASCII" in SYSTEM_PROMPT
+
+    def test_regular_prompt_bans_full_width_brackets(self):
+        from app.rag.prompts import REGULAR_MODE_SYSTEM
+
+        assert "【" in REGULAR_MODE_SYSTEM
+        assert "ASCII" in REGULAR_MODE_SYSTEM
+
+    def test_web_only_prompt_bans_full_width_brackets(self):
+        from app.rag.prompts import WEB_ONLY_SYSTEM
+
+        assert "【" in WEB_ONLY_SYSTEM
+        assert "ASCII" in WEB_ONLY_SYSTEM
+
+    def test_citation_format_rules_are_shared(self):
+        """The three prompts that cite passages must all inherit the same
+        rules — divergence here caused the original inconsistency bug."""
+        from app.rag.prompts import (
+            CITATION_FORMAT_RULES,
+            REGULAR_MODE_SYSTEM,
+            SYSTEM_PROMPT,
+            WEB_ONLY_SYSTEM,
+        )
+
+        assert CITATION_FORMAT_RULES in SYSTEM_PROMPT
+        assert CITATION_FORMAT_RULES in REGULAR_MODE_SYSTEM
+        assert CITATION_FORMAT_RULES in WEB_ONLY_SYSTEM

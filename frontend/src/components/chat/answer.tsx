@@ -44,6 +44,18 @@ const answerSanitizeSchema: typeof defaultSchema = {
   },
 };
 
+// Some models (notably Qwen and other CJK-tuned checkpoints) sometimes emit
+// citations with full-width brackets 【1】 / 【W1】 or full-width parens
+// （1） / （W1） instead of the ASCII [1] / [W1] the prompt asks for. The
+// prompt spec is the primary fix; this is a safety net so any drift renders
+// consistently and doesn't leak into persisted chat history looking mixed.
+// Applied at render time so it also cleans up older chats that were saved
+// before the prompt was tightened.
+const FULL_WIDTH_CITATION_RE = /[【（]\s*(W?\d+)\s*[】）]/g;
+function normalizeCitationBrackets(text: string): string {
+  return text.replace(FULL_WIDTH_CITATION_RE, "[$1]");
+}
+
 import { KnowledgeGraph } from "@/components/graph/knowledge-graph";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -129,7 +141,7 @@ export function Answer({
               [rehypeSanitize, answerSanitizeSchema],
             ]}
           >
-            {response.answer}
+            {normalizeCitationBrackets(response.answer)}
           </ReactMarkdown>
           {streaming && (
             <span
