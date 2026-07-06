@@ -410,6 +410,41 @@ function WebCitationItem({
   );
 }
 
+/** Bucket the raw cross-encoder reranker score into a user-facing label.
+ *  The bge-reranker-base score is a logit — well-relevant chunks land in
+ *  0.3–0.9, weak matches under 0.2, and the "actually unrelated" zone hangs
+ *  around 0.0. Numeric scores confuse users ("score 0.014" reads worse than
+ *  it is or better than it is depending on their calibration), so we show
+ *  a bucketed label and keep the raw value in a hover tooltip. */
+type CitationRelevance = "strong" | "moderate" | "weak";
+
+function bucketScore(score: number): CitationRelevance {
+  if (score >= 0.5) return "strong";
+  if (score >= 0.2) return "moderate";
+  return "weak";
+}
+
+const RELEVANCE_STYLES: Record<
+  CitationRelevance,
+  { label: string; className: string }
+> = {
+  strong: {
+    label: "Strong match",
+    className:
+      "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  },
+  moderate: {
+    label: "Moderate match",
+    className:
+      "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  },
+  weak: {
+    label: "Weak match",
+    className:
+      "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  },
+};
+
 function CitationItem({
   index,
   citation,
@@ -417,6 +452,8 @@ function CitationItem({
   index: number;
   citation: ChatCitation;
 }) {
+  const relevance = bucketScore(citation.score);
+  const style = RELEVANCE_STYLES[relevance];
   return (
     <li
       className="rounded-lg border border-border/60 bg-background/50 px-3 py-2.5 text-xs"
@@ -427,8 +464,16 @@ function CitationItem({
           <span className="text-[color:var(--brand)]">[{index}]</span> doc{" "}
           {citation.document_id.slice(0, 8)}… · chunk {citation.chunk_index}
         </span>
-        <span className="text-muted-foreground">
-          score {citation.score.toFixed(3)}
+        <span
+          className={
+            "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium " +
+            style.className
+          }
+          data-testid="citation-relevance"
+          data-relevance={relevance}
+          title={`Reranker score: ${citation.score.toFixed(3)}`}
+        >
+          {style.label}
         </span>
       </div>
       <p className="text-foreground/90">{citation.text_preview}</p>

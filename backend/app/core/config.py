@@ -111,10 +111,19 @@ class Settings(BaseSettings):
     # cross-encoder rerank picks the top_k. rerank_candidate_k is how
     # many candidates flow into the reranker.
     rerank_enabled: bool = True
-    rerank_candidate_k: int = 20
+    # 40 candidates flow into the reranker (was 20). Doubling widens the
+    # net so the true best chunk is likelier to reach the reranker even
+    # when hybrid RRF ranks it just outside the previous cutoff. Cost is
+    # ~20ms extra reranker inference on CPU — cheap given the quality lift.
+    rerank_candidate_k: int = 40
     rerank_model: str = "BAAI/bge-reranker-base"
     hybrid_enabled: bool = True
     hybrid_per_branch_k: int = 30
+    # After reranking, enforce document diversity so a single verbose doc
+    # can't monopolise every citation slot. Falls back gracefully: if the
+    # cap leaves us below top_k (e.g. all candidates come from one doc)
+    # the extras are backfilled from the remaining reranked chunks.
+    retrieval_max_chunks_per_doc: int = 2
 
     # Transactional email (Resend). When unset, /register skips the email
     # but still creates the user — useful for local dev without a key.

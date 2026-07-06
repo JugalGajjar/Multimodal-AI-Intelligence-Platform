@@ -190,4 +190,49 @@ describe("<Answer />", () => {
       expect(document.body.style.background).toBe("");
     });
   });
+
+  describe("citation relevance badges", () => {
+    function withCitation(score: number): ChatResponse {
+      return {
+        ...baseResponse("answer text"),
+        citations: [
+          {
+            chunk_id: "c1",
+            document_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            chunk_index: 0,
+            score,
+            text_preview: "preview text",
+          },
+        ],
+        used_context: true,
+      };
+    }
+
+    it.each([
+      [0.9, "strong"],
+      [0.5, "strong"],
+      [0.499, "moderate"],
+      [0.2, "moderate"],
+      [0.199, "weak"],
+      [0.014, "weak"],
+      [0.0, "weak"],
+    ])("score %f maps to %s bucket", (score, expected) => {
+      render(<Answer response={withCitation(score)} />);
+      const badge = screen.getByTestId("citation-relevance");
+      expect(badge).toHaveAttribute("data-relevance", expected);
+    });
+
+    it("keeps the raw reranker score in the badge title tooltip", () => {
+      render(<Answer response={withCitation(0.014)} />);
+      const badge = screen.getByTestId("citation-relevance");
+      expect(badge).toHaveAttribute("title", "Reranker score: 0.014");
+    });
+
+    it("uses human-readable labels, not the raw number", () => {
+      render(<Answer response={withCitation(0.7)} />);
+      expect(screen.getByText("Strong match")).toBeInTheDocument();
+      // The old "score 0.700" text form must not appear.
+      expect(screen.queryByText(/score 0\.700/i)).not.toBeInTheDocument();
+    });
+  });
 });

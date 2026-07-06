@@ -176,7 +176,10 @@ describe("<ChatPanel />", () => {
     const items = screen.getAllByTestId("citation-item");
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText(/first chunk preview/i)).toBeInTheDocument();
-    expect(within(items[0]).getByText(/score 0\.812/)).toBeInTheDocument();
+    // Score 0.812 → "Strong match" bucket (raw number moved to a tooltip).
+    const relevance0 = within(items[0]).getByTestId("citation-relevance");
+    expect(relevance0).toHaveAttribute("data-relevance", "strong");
+    expect(relevance0).toHaveAttribute("title", "Reranker score: 0.812");
     expect(within(items[1]).getByText(/second chunk preview/i)).toBeInTheDocument();
 
     // POST went to /chat/stream with Bearer
