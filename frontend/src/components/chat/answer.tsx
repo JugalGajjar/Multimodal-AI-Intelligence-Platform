@@ -18,7 +18,31 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+
+// Model output is not trusted — it can carry prompt-injection-crafted HTML
+// (script tags, iframes, on* handlers, javascript: URLs). Parse the raw HTML
+// the model produced (via rehype-raw so <br>, <em>, tables etc. render
+// natively), then run it through rehype-sanitize with an explicit allowlist
+// of tags that render nicely and can't be weaponised.
+//
+// The allowlist starts from rehype-sanitize's defaultSchema (github-flavoured,
+// widely audited) and only widens what's necessary for typical model output:
+// explicitly include <br> so hard line breaks land, and allow className on
+// <span>/<code> so any future syntax highlighter can style tokens. All
+// <script>/<iframe>/<object>/<embed>, event-handler attrs, and non-http(s)
+// URL schemes stay blocked by the defaultSchema.
+const answerSanitizeSchema: typeof defaultSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "br"],
+  attributes: {
+    ...(defaultSchema.attributes ?? {}),
+    span: [...(defaultSchema.attributes?.span ?? []), "className"],
+    code: [...(defaultSchema.attributes?.code ?? []), "className"],
+  },
+};
 
 import { KnowledgeGraph } from "@/components/graph/knowledge-graph";
 import { Badge } from "@/components/ui/badge";
@@ -98,7 +122,13 @@ export function Answer({
           className="prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted/60 prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none"
           data-testid="chat-answer-text"
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[
+              rehypeRaw,
+              [rehypeSanitize, answerSanitizeSchema],
+            ]}
+          >
             {response.answer}
           </ReactMarkdown>
           {streaming && (
