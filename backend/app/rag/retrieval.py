@@ -5,7 +5,9 @@ Pipeline (all stages opt-out via settings):
      - dense:  bge-small-en-v1.5 embedding
      - sparse: BM25-style sparse vector (fastembed Qdrant/bm25)
   2. Cross-encoder rerank (bge-reranker-base) over the fused candidates
-  3. Return the top_k by reranker score
+  3. Per-document diversification cap so one verbose doc can't take every
+     citation slot (backfills from overflow if strict cap is too tight)
+  4. Return the top_k
 """
 
 import time
@@ -132,6 +134,44 @@ def _candidate_search(
     return _points_to_chunks(response.points)
 
 
+def _diversify(
+    reranked: list[RetrievedChunk], *, top_k: int, max_per_doc: int
+) -> list[RetrievedChunk]:
+    """Enforce a per-document citation cap on a score-ordered list.
+
+    First pass walks the reranked list in score order, keeping up to
+    `max_per_doc` chunks per document_id and setting the rest aside.
+    If the strict cap leaves us below `top_k` (all candidates came from
+    one doc, single-source query), a second pass fills remaining slots
+    from the overflow in the same score order — so a legitimate one-doc
+    query still returns top_k without silently dropping to 2.
+    """
+    if max_per_doc <= 0 or len(reranked) <= top_k:
+        return reranked[:top_k]
+
+    per_doc: dict[str, int] = {}
+    kept: list[RetrievedChunk] = []
+    overflow: list[RetrievedChunk] = []
+
+    for chunk in reranked:
+        if len(kept) >= top_k:
+            break
+        count = per_doc.get(chunk.document_id, 0)
+        if count < max_per_doc:
+            kept.append(chunk)
+            per_doc[chunk.document_id] = count + 1
+        else:
+            overflow.append(chunk)
+
+    # Backfill from overflow in score order.
+    for chunk in overflow:
+        if len(kept) >= top_k:
+            break
+        kept.append(chunk)
+
+    return kept
+
+
 def retrieve(
     *,
     query: str,
@@ -161,11 +201,23 @@ def retrieve(
             if settings.rerank_enabled and len(candidates) > 1:
                 from app.rag.reranker import rerank
 
-                chunks = rerank(query, candidates, top_k=top_k)
+                # Rerank the full candidate pool so diversification can pick
+                # across the reranked ordering, not just its top slice.
+                reranked = rerank(query, candidates, top_k=len(candidates))
             else:
-                chunks = candidates[:top_k]
+                reranked = candidates
+
+            chunks = _diversify(
+                reranked,
+                top_k=top_k,
+                max_per_doc=settings.retrieval_max_chunks_per_doc,
+            )
 
             span.set_attribute("retrieval.result_count", len(chunks))
+            span.set_attribute(
+                "retrieval.distinct_doc_count",
+                len({c.document_id for c in chunks}),
+            )
             return chunks
     finally:
         retrieval_duration_seconds.observe(time.perf_counter() - start)
