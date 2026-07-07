@@ -154,12 +154,13 @@ async def _call_llm(text: str) -> str:
         # reasoning_effort="medium" — graph extraction needs proper reasoning
         # to infer relations from proximity/apposition; "low" would revert to
         # the observed "8 entities, 0 relations" behavior we saw in prod.
-        # max_tokens=8192 (was 4096) — entity-dense docs (CVs, 68+ entities)
-        # were filling the entire output budget with the entities array and
-        # closing with `"relationships": []` under length pressure. 8192 fits
-        # ~150 entities + a full relations array with terse descriptions.
-        # For docs beyond that scale, see the planned #43 map-reduce redesign.
-        max_tokens=8192,
+        # max_tokens=5120 (was 8192 in #42a) — Groq free tier caps gpt-oss
+        # at 8000 TPM AND enforces the cap on individual requests. 8192 +
+        # input + system prompt exceeded 8000 → 413. 5120 keeps single
+        # calls under the ceiling while still fitting ~80 entities with
+        # the #42a terse-description rule ("2-6 word tag"). Proper fix is
+        # the planned #43 map-reduce redesign — this is the interim ceiling.
+        max_tokens=5120,
         reasoning_effort="medium",
         response_format={"type": "json_object"},
     )

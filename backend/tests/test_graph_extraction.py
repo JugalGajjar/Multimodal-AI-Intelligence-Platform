@@ -52,10 +52,11 @@ async def test_uses_json_response_format(monkeypatch):
     # burning the whole max_tokens on reasoning (which produced 0 rels in
     # prod). See #42.
     assert kwargs["reasoning_effort"] == "medium"
-    # 8192 (was 4096 in #42, was 2048 before that) — entity-dense docs like
-    # CVs surface 60-80+ entities and were filling the output budget with
-    # entities alone, forcing "relationships": []. See #42a.
-    assert kwargs["max_tokens"] == 8192
+    # 5120 (was 8192 in #42a, 4096 in #42, 2048 before that) — Groq free
+    # tier caps single requests at 8000 TPM. 8192 max_tokens + system
+    # prompt + typical input exceeded the ceiling → 413. 5120 stays
+    # under while still fitting ~80 terse-description entities. See #42b.
+    assert kwargs["max_tokens"] == 5120
 
 
 async def test_non_json_response_returns_empty():
