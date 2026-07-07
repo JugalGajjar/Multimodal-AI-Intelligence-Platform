@@ -34,26 +34,57 @@ log = logging.getLogger("mmap.graph.extraction")
 
 SYSTEM_PROMPT = (
     "You are an information extraction system. Read the passage and produce a "
-    "JSON object describing the entities mentioned and how they relate.\n\n"
-    "STRICT JSON schema:\n"
+    "JSON object describing the entities mentioned and how they relate. Works "
+    "across any domain — medical, legal, business, scientific, technical.\n\n"
+    "STRICT JSON schema (types are exactly one of the eight allowed values):\n"
     "{\n"
     '  "entities": [\n'
-    '    {"name": "<canonical noun phrase>", "type": "Person|Organization|'
-    'Location|Concept|Technology|Product|Event|Date", '
-    '"description": "<one short sentence>"}\n'
+    '    {"name": "canonical noun phrase", "type": "Person", '
+    '"description": "one short sentence"}\n'
     "  ],\n"
     '  "relationships": [\n'
-    '    {"source": "<entity name>", "target": "<entity name>", '
-    '"relation": "<verb phrase, e.g. \\"uses\\", \\"located in\\">"}\n'
+    '    {"source": "entity name", "target": "entity name", '
+    '"relation": "short verb phrase"}\n'
     "  ]\n"
-    "}\n\n"
+    "}\n"
+    "Allowed entity types: Person, Organization, Location, Concept, "
+    "Technology, Product, Event, Date.\n\n"
     "Rules:\n"
     '- Names must be canonical (no pronouns, drop articles like "the").\n'
-    "- Each relationship source/target MUST appear in entities.\n"
+    "- Each relationship source and target MUST appear in entities.\n"
     "- If unsure of entity type, use Concept.\n"
     "- Prefer named, specific entities; skip generic words.\n"
     "- Output JSON ONLY (no markdown fences, no commentary).\n"
-    '- Return {"entities": [], "relationships": []} if nothing notable.'
+    "- Only return empty lists when the passage contains no named entities "
+    "at all. If entities are present, you MUST extract every relation the "
+    "passage implies, including relations expressed through:\n"
+    '  * apposition or parentheses ("Jane Smith (MIT)" → Smith affiliated with MIT)\n'
+    "  * juxtaposition on the same line/slide (title-slide bylines, author lists,\n"
+    "    tables where a row groups related entities)\n"
+    '  * comparison and result verbs ("outperforms", "reduces", "increases", "cites")\n'
+    '  * possessive or attributive prose ("Anthropic\'s Claude", "the FDA-approved drug")\n'
+    "- Slide, OCR, and bullet-list text is often compact — infer the relation "
+    "from proximity when the surrounding text makes it unambiguous.\n\n"
+    "Example (illustrates typing + explicit + implicit relations — the domain "
+    "is illustrative, apply the same reasoning to whatever passage you receive):\n"
+    'Input: "Jane Smith (MIT) proposes TinyGraph — a variant that outperforms '
+    'GraphBERT on the WebQA benchmark."\n'
+    "Output:\n"
+    "{\n"
+    '  "entities": [\n'
+    '    {"name": "Jane Smith", "type": "Person", "description": "researcher"},\n'
+    '    {"name": "MIT", "type": "Organization", "description": "research institution"},\n'
+    '    {"name": "TinyGraph", "type": "Technology", "description": "lightweight graph model"},\n'
+    '    {"name": "GraphBERT", "type": "Technology", "description": "baseline graph model"},\n'
+    '    {"name": "WebQA", "type": "Concept", "description": "QA benchmark"}\n'
+    "  ],\n"
+    '  "relationships": [\n'
+    '    {"source": "Jane Smith", "target": "MIT", "relation": "affiliated with"},\n'
+    '    {"source": "Jane Smith", "target": "TinyGraph", "relation": "proposes"},\n'
+    '    {"source": "TinyGraph", "target": "GraphBERT", "relation": "outperforms"},\n'
+    '    {"source": "TinyGraph", "target": "WebQA", "relation": "evaluated on"}\n'
+    "  ]\n"
+    "}"
 )
 
 
@@ -117,7 +148,14 @@ async def _call_llm(text: str) -> str:
         ],
         model=settings.groq_extraction_model,
         temperature=0.0,
-        max_tokens=2048,
+        # reasoning_effort="medium" — graph extraction needs proper reasoning
+        # to infer relations from proximity/apposition; "low" would revert to
+        # the observed "8 entities, 0 relations" behavior we saw in prod.
+        # max_tokens=4096 leaves headroom for entities + relationships on
+        # the same reasoning-model budget (the 2048 cap was starving the
+        # relations half of the output — see #42).
+        max_tokens=4096,
+        reasoning_effort="medium",
         response_format={"type": "json_object"},
     )
 

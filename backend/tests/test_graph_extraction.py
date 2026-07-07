@@ -47,6 +47,14 @@ async def test_uses_json_response_format(monkeypatch):
     kwargs = fake.call_args.kwargs
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["temperature"] == 0.0
+    # gpt-oss reasoning models need explicit CoT budget management. "medium"
+    # is enough to infer implicit relations from apposition/proximity without
+    # burning the whole max_tokens on reasoning (which produced 0 rels in
+    # prod). See #42.
+    assert kwargs["reasoning_effort"] == "medium"
+    # 4096 leaves headroom for entities + relationships on the same budget
+    # (2048 was the pre-#42 value that starved the relations half).
+    assert kwargs["max_tokens"] == 4096
 
 
 async def test_non_json_response_returns_empty():
@@ -336,3 +344,54 @@ async def test_returns_clean_result_for_realistic_payload():
         "Cosine Distance",
         "BAAI/bge-small-en-v1.5",
     }
+
+
+class TestSystemPromptContract:
+    """The prompt must (a) parse as valid JSON in every schema example it
+    contains, (b) not include the 'return empty lists if nothing notable'
+    escape hatch that gave the model an easy out on slide/OCR text, and
+    (c) name the domain-general failure modes (apposition, proximity,
+    comparison verbs) that the #42 rewrite added. Test the contract, not
+    the exact wording."""
+
+    def test_all_schema_examples_are_valid_json(self):
+        # The prompt embeds multiple JSON objects (schema shape + few-shot
+        # example). Each must round-trip through json.loads — same regression
+        # guard as intent_router / verifier (#41).
+        prompt = extraction.SYSTEM_PROMPT
+        offsets = [i for i, ch in enumerate(prompt) if ch == "{"]
+        parsed_any = False
+        for start in offsets:
+            candidate = extraction._extract_json_object(prompt[start:])
+            if candidate is None:
+                continue
+            # Skip TypeScript-union-y examples that were removed; the fixed
+            # prompt should have every candidate parse cleanly.
+            json.loads(candidate)
+            parsed_any = True
+        assert parsed_any, "no JSON objects found in prompt"
+
+    def test_prompt_does_not_offer_safe_zero_escape(self):
+        # The old "Return {\"entities\": [], \"relationships\": []} if
+        # nothing notable" line gave conservative reasoning models an easy
+        # out on OCR-noisy slide text. It must not reappear verbatim.
+        low = extraction.SYSTEM_PROMPT.lower()
+        assert "if nothing notable" not in low
+        # But we DO want a scoped fallback for genuinely entity-free text.
+        assert "no named entities" in low
+
+    def test_prompt_names_implicit_relation_signals(self):
+        # Domain-general failure modes the rewrite added.
+        low = extraction.SYSTEM_PROMPT.lower()
+        assert "apposition" in low or "parentheses" in low
+        assert "juxtaposition" in low or "proximity" in low
+        assert "comparison" in low or "outperforms" in low
+
+    def test_prompt_stays_domain_neutral(self):
+        # #42 explicitly avoided biasing toward research-specific relation
+        # types like "author of" or "affiliated with" as required patterns
+        # — those appear only as illustrative examples inside a bulleted
+        # list of prose patterns. Guard against future edits that would
+        # sneak in a domain-specific "you MUST extract author_of" rule.
+        low = extraction.SYSTEM_PROMPT.lower()
+        assert "medical" in low or "legal" in low or "any domain" in low
