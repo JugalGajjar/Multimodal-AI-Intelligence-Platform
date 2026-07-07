@@ -88,6 +88,8 @@ async def test_classify_intent_uses_extraction_model_and_json_mode(monkeypatch):
     assert kwargs["model"] == "vendor/route-x"
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["temperature"] == 0.0
+    # Classification is a 3-way pick — no need for deep CoT. See #41.
+    assert kwargs["reasoning_effort"] == "low"
 
 
 @pytest.mark.asyncio
@@ -95,3 +97,16 @@ async def test_classify_intent_handles_each_route_label(monkeypatch):
     for label in ("chat", "summarize", "explain_graph"):
         monkeypatch.setattr(ir, "_call_llm", AsyncMock(return_value=json.dumps({"intent": label})))
         assert await classify_intent(f"q for {label}") == label
+
+
+def test_prompt_schema_example_is_valid_json():
+    """Regression: the schema example inside the system prompt must itself
+    parse as JSON. The old prompt used TypeScript-union syntax
+    ('"chat" | "summarize" | "explain_graph"') which gpt-oss-120b tried to
+    reproduce literally — Groq's server-side json_object validator then
+    rejected the completion with 400 json_validate_failed. Prod incident
+    2026-07-06, see #41."""
+    obj_str = ir._extract_json_object(ir.SYSTEM_PROMPT)
+    assert obj_str is not None, "no JSON object found in prompt"
+    parsed = json.loads(obj_str)  # must not raise
+    assert parsed.get("intent") in ("chat", "summarize", "explain_graph")

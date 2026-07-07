@@ -34,8 +34,9 @@ SYSTEM_PROMPT = (
     "more of their documents.\n"
     "- explain_graph  — the user is asking about entities or how things relate "
     "to each other (relationships, connections, what's linked to what).\n\n"
-    "STRICT JSON schema:\n"
-    '{"intent": "chat" | "summarize" | "explain_graph"}\n\n'
+    "STRICT JSON schema (the value of 'intent' is exactly one of the three "
+    "strings: chat, summarize, explain_graph):\n"
+    '{"intent": "chat"}\n\n'
     "Rules:\n"
     "- Output JSON only (no markdown fences, no commentary).\n"
     '- If you are unsure, default to "chat".'
@@ -107,7 +108,11 @@ async def _call_llm(query: str) -> str:
         ],
         model=settings.groq_extraction_model,
         temperature=0.0,
-        max_tokens=64,
+        # reasoning_effort=low + max_tokens=1024 gives gpt-oss ample room to
+        # emit a 5-token JSON classification. 64 (the pre-fix value) was
+        # starving CoT and producing empty output (Groq 400 json_validate_failed).
+        max_tokens=1024,
+        reasoning_effort="low",
         response_format={"type": "json_object"},
     )
 

@@ -78,22 +78,26 @@ SYSTEM_PROMPT = (
     "4. Entity existence. Every named entity in the claim (person, venue, "
     "paper title, organisation) must appear by name in the context. A "
     "plausible-sounding but absent entity is unsupported.\n\n"
-    "Evidence field: for supported and uncertain claims, put a short "
-    "VERBATIM QUOTE from the context (10-25 words) plus the citation ref "
-    "in the form '\"…quote…\" [N]' or '\"…quote…\" [W#]'. For graph facts, "
-    "use the entity name. For unsupported claims, leave evidence empty. "
-    "Do not paraphrase — the quote is how you prove the claim is entailed.\n\n"
-    "Output JSON ONLY (no markdown fences, no commentary).\n\n"
-    "STRICT JSON schema:\n"
+    "Evidence: for supported and uncertain claims, put a short verbatim "
+    "phrase (10-25 words) from the context into 'quote', and put the "
+    "citation marker (e.g. [1], [W2]) or the graph entity name into "
+    "'citation'. Do not paraphrase in 'quote' — copy exact wording; that "
+    "copy is how you prove entailment. For unsupported claims, leave both "
+    "'quote' and 'citation' as empty strings.\n\n"
+    "Output JSON ONLY (no markdown fences, no commentary). Every field is "
+    "a plain string with no nested quote characters.\n\n"
+    "STRICT JSON schema (all four fields required per claim):\n"
     "{\n"
     '  "claims": [\n'
     "    {\n"
-    '      "text": "<atomic claim from the answer, quoted verbatim>",\n'
-    '      "support": "supported|unsupported|uncertain",\n'
-    '      "evidence": "<\\"verbatim quote\\" [N] or empty>"\n'
+    '      "text": "the atomic claim from the answer",\n'
+    '      "support": "supported",\n'
+    '      "quote": "the exact phrase from context that entails the claim",\n'
+    '      "citation": "[1]"\n'
     "    }\n"
     "  ]\n"
     "}\n"
+    "'support' is exactly one of: supported, unsupported, uncertain. "
     'If the answer has no factual claims, return {"claims": []}.'
 )
 
@@ -203,13 +207,15 @@ def _parse_claims(raw: str) -> list[ClaimVerdict]:
         support = str(item.get("support") or "").strip().lower()
         if not text or support not in ("supported", "unsupported", "uncertain"):
             continue
-        out.append(
-            ClaimVerdict(
-                text=text,
-                support=support,
-                evidence=str(item.get("evidence") or "").strip(),
-            )
-        )
+        # Prefer the new quote+citation shape; fall back to a legacy `evidence`
+        # field if the model still emits it (helps during any deploy overlap).
+        quote = str(item.get("quote") or "").strip()
+        citation = str(item.get("citation") or "").strip()
+        if quote or citation:
+            evidence = f"{quote} {citation}".strip() if quote and citation else (quote or citation)
+        else:
+            evidence = str(item.get("evidence") or "").strip()
+        out.append(ClaimVerdict(text=text, support=support, evidence=evidence))
     return out
 
 
@@ -265,7 +271,11 @@ async def _call_llm(
         ],
         model=settings.groq_extraction_model,
         temperature=0.0,
-        max_tokens=2048,
+        # reasoning_effort=low + a generous max_tokens is the belt+suspenders
+        # combo for gpt-oss extraction: low CoT budget so the model gets to
+        # output quickly, plus 4096 headroom for the claim JSON payload.
+        max_tokens=4096,
+        reasoning_effort="low",
         response_format={"type": "json_object"},
     )
 

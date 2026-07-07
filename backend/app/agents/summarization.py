@@ -160,7 +160,11 @@ async def _call_llm(text: str) -> str:
         ],
         model=settings.groq_extraction_model,
         temperature=0.0,
-        max_tokens=1024,
+        # reasoning_effort=low + 2048 gives gpt-oss room for tldr + key_points
+        # + topics without CoT eating the budget. 1024 was borderline on
+        # longer docs — same failure mode as chat_summary / verification.
+        max_tokens=2048,
+        reasoning_effort="low",
         response_format={"type": "json_object"},
     )
 

@@ -26,6 +26,8 @@ async def test_happy_path_parses_title_and_summary():
     kwargs = fake.call_args.kwargs
     assert kwargs["response_format"] == {"type": "json_object"}
     assert "user: What is prompt engineering?" in kwargs["messages"][1]["content"]
+    # Structured extraction — cap CoT so gpt-oss doesn't starve output. See #41.
+    assert kwargs["reasoning_effort"] == "low"
 
 
 async def test_recovers_from_fenced_json():

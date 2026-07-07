@@ -111,3 +111,35 @@ async def test_passes_max_completion_tokens(monkeypatch):
     )
 
     assert client.chat.completions.create.call_args.kwargs["max_completion_tokens"] == 2000
+
+
+async def test_forwards_reasoning_effort_when_set(monkeypatch):
+    """gpt-oss models accept `reasoning_effort` to bound CoT tokens. Callers
+    that pass it must have it forwarded to the SDK verbatim. Not passing means
+    the extraction-side #41 fix silently regresses."""
+    monkeypatch.setattr(settings, "groq_api_key", "gsk_fake")
+
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(return_value=_fake_completion("ok"))
+    _install_fake_groq(monkeypatch, client)
+
+    await groq_chat.chat_completion(
+        messages=[{"role": "user", "content": "x"}],
+        reasoning_effort="low",
+    )
+
+    assert client.chat.completions.create.call_args.kwargs["reasoning_effort"] == "low"
+
+
+async def test_omits_reasoning_effort_when_not_set(monkeypatch):
+    """Backward-compat: callers that don't pass reasoning_effort should not
+    have the key sent — some models reject it."""
+    monkeypatch.setattr(settings, "groq_api_key", "gsk_fake")
+
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(return_value=_fake_completion("ok"))
+    _install_fake_groq(monkeypatch, client)
+
+    await groq_chat.chat_completion(messages=[{"role": "user", "content": "x"}])
+
+    assert "reasoning_effort" not in client.chat.completions.create.call_args.kwargs

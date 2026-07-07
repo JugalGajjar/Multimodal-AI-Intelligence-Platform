@@ -139,6 +139,8 @@ async def test_summarize_uses_extraction_model_and_json_mode(monkeypatch):
     assert kwargs["model"] == "vendor/sum-x"
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["temperature"] == 0.0
+    # Summarization is structured extraction — low CoT is enough. See #41.
+    assert kwargs["reasoning_effort"] == "low"
 
 
 @pytest.mark.asyncio

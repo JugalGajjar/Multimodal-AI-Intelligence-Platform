@@ -22,6 +22,7 @@ async def chat_completion(
     temperature: float = 0.2,
     max_tokens: int | None = None,
     response_format: dict | None = None,
+    reasoning_effort: str | None = None,
     timeout: float = 60.0,
 ) -> str:
     if not settings.groq_api_key:
@@ -42,6 +43,12 @@ async def chat_completion(
     }
     if response_format is not None:
         create_kwargs["response_format"] = response_format
+    # Groq gpt-oss models accept reasoning_effort ("low"|"medium"|"high") to
+    # bound the CoT budget. Extraction tasks (verify/classify/summarize) use
+    # "low" — they're deterministic pattern-matching, not deep reasoning —
+    # which frees max_completion_tokens for actual output.
+    if reasoning_effort is not None:
+        create_kwargs["reasoning_effort"] = reasoning_effort
 
     async with time_llm("groq", chosen_model) as metric:
         try:

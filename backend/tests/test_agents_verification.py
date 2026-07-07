@@ -265,6 +265,9 @@ async def test_verify_answer_uses_extraction_model_and_json_mode(monkeypatch):
     assert kwargs["model"] == "vendor/verify-x"
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["temperature"] == 0.0
+    # Extraction is deterministic pattern-matching — cap reasoning so gpt-oss
+    # doesn't blow the token budget on CoT and starve the output. See #41.
+    assert kwargs["reasoning_effort"] == "low"
 
 
 def test_to_dict_round_trips_a_typical_result():
@@ -400,3 +403,63 @@ class TestSystemPromptStrictness:
         low = ver.SYSTEM_PROMPT.lower()
         assert "unsupported" in low and "uncertain" in low
         assert "bias" in low or "prefer" in low
+
+    def test_prompt_schema_example_is_valid_json(self):
+        """Regression: the schema example inside the system prompt must itself
+        parse as valid JSON. Groq's server-side json_object validator rejects
+        the model's output when the schema shown to it is malformed (e.g.
+        TypeScript union syntax, embedded escaped quotes it can't reproduce).
+        Prod incident 2026-07-06 — see #41."""
+        obj_str = ver._extract_json_object(ver.SYSTEM_PROMPT)
+        assert obj_str is not None, "no JSON object found in prompt"
+        parsed = json.loads(obj_str)  # must not raise
+        # And the shape has to actually match what _parse_claims consumes.
+        assert isinstance(parsed.get("claims"), list)
+        first = parsed["claims"][0]
+        assert set(first.keys()) >= {"text", "support"}
+
+
+class TestParseClaimsNewShape:
+    """The tightened prompt asks the model for `quote` + `citation` separately
+    (avoids the escaped-quote pattern that blew up Groq's JSON validator).
+    Legacy `evidence` still parses too — deploy-overlap safety."""
+
+    def test_parses_new_quote_and_citation_shape(self):
+        raw = json.dumps(
+            {
+                "claims": [
+                    {
+                        "text": "Qdrant uses cosine distance",
+                        "support": "supported",
+                        "quote": "cosine distance is the default",
+                        "citation": "[1]",
+                    }
+                ]
+            }
+        )
+        out = ver._parse_claims(raw)
+        assert len(out) == 1
+        assert "cosine distance is the default" in out[0].evidence
+        assert "[1]" in out[0].evidence
+
+    def test_falls_back_to_legacy_evidence_field(self):
+        raw = json.dumps(
+            {"claims": [{"text": "a", "support": "supported", "evidence": "legacy [2]"}]}
+        )
+        out = ver._parse_claims(raw)
+        assert len(out) == 1
+        assert out[0].evidence == "legacy [2]"
+
+    def test_quote_only_no_citation(self):
+        raw = json.dumps(
+            {"claims": [{"text": "a", "support": "supported", "quote": "just a quote"}]}
+        )
+        out = ver._parse_claims(raw)
+        assert out[0].evidence == "just a quote"
+
+    def test_unsupported_claim_has_empty_evidence(self):
+        raw = json.dumps(
+            {"claims": [{"text": "x", "support": "unsupported", "quote": "", "citation": ""}]}
+        )
+        out = ver._parse_claims(raw)
+        assert out[0].evidence == ""

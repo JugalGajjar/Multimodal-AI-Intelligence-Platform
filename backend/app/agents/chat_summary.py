@@ -70,7 +70,12 @@ async def summarize_chat(turns: list[dict[str, str]]) -> ChatSummaryResult:
             ],
             model=settings.groq_extraction_model,
             temperature=0.0,
-            max_tokens=256,
+            # reasoning_effort=low keeps CoT tight; 2048 leaves plenty of
+            # room for the title+summary JSON. 256 (pre-fix) exhausted the
+            # budget on reasoning alone — Groq returned "max completion
+            # tokens reached before generating a valid document".
+            max_tokens=2048,
+            reasoning_effort="low",
             response_format={"type": "json_object"},
         )
     except GroqChatError as exc:
