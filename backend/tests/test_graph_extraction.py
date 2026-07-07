@@ -52,9 +52,10 @@ async def test_uses_json_response_format(monkeypatch):
     # burning the whole max_tokens on reasoning (which produced 0 rels in
     # prod). See #42.
     assert kwargs["reasoning_effort"] == "medium"
-    # 4096 leaves headroom for entities + relationships on the same budget
-    # (2048 was the pre-#42 value that starved the relations half).
-    assert kwargs["max_tokens"] == 4096
+    # 8192 (was 4096 in #42, was 2048 before that) — entity-dense docs like
+    # CVs surface 60-80+ entities and were filling the output budget with
+    # entities alone, forcing "relationships": []. See #42a.
+    assert kwargs["max_tokens"] == 8192
 
 
 async def test_non_json_response_returns_empty():
@@ -395,3 +396,14 @@ class TestSystemPromptContract:
         # sneak in a domain-specific "you MUST extract author_of" rule.
         low = extraction.SYSTEM_PROMPT.lower()
         assert "medical" in low or "legal" in low or "any domain" in low
+
+    def test_prompt_caps_description_length_to_avoid_starvation(self):
+        # #42a — the prompt must instruct the model to keep entity
+        # descriptions terse (2-6 words), because CV-style entity-dense
+        # docs previously ate the whole output budget with sentence-long
+        # descriptions and closed with "relationships": []. This rule is
+        # what makes the token budget headroom usable at 60+ entities.
+        low = extraction.SYSTEM_PROMPT.lower()
+        assert "2-6 word" in low or "2-6 words" in low
+        # The old "one short sentence" description ask must NOT reappear.
+        assert "one short sentence" not in low

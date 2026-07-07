@@ -40,7 +40,7 @@ SYSTEM_PROMPT = (
     "{\n"
     '  "entities": [\n'
     '    {"name": "canonical noun phrase", "type": "Person", '
-    '"description": "one short sentence"}\n'
+    '"description": "2-6 word tag"}\n'
     "  ],\n"
     '  "relationships": [\n'
     '    {"source": "entity name", "target": "entity name", '
@@ -54,6 +54,9 @@ SYSTEM_PROMPT = (
     "- Each relationship source and target MUST appear in entities.\n"
     "- If unsure of entity type, use Concept.\n"
     "- Prefer named, specific entities; skip generic words.\n"
+    "- Descriptions MUST be a 2-6 word tag (role, category, or one-liner) "
+    "— never a full sentence. Long descriptions waste output tokens that "
+    "would otherwise go to relationships.\n"
     "- Output JSON ONLY (no markdown fences, no commentary).\n"
     "- Only return empty lists when the passage contains no named entities "
     "at all. If entities are present, you MUST extract every relation the "
@@ -151,10 +154,12 @@ async def _call_llm(text: str) -> str:
         # reasoning_effort="medium" — graph extraction needs proper reasoning
         # to infer relations from proximity/apposition; "low" would revert to
         # the observed "8 entities, 0 relations" behavior we saw in prod.
-        # max_tokens=4096 leaves headroom for entities + relationships on
-        # the same reasoning-model budget (the 2048 cap was starving the
-        # relations half of the output — see #42).
-        max_tokens=4096,
+        # max_tokens=8192 (was 4096) — entity-dense docs (CVs, 68+ entities)
+        # were filling the entire output budget with the entities array and
+        # closing with `"relationships": []` under length pressure. 8192 fits
+        # ~150 entities + a full relations array with terse descriptions.
+        # For docs beyond that scale, see the planned #43 map-reduce redesign.
+        max_tokens=8192,
         reasoning_effort="medium",
         response_format={"type": "json_object"},
     )
