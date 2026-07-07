@@ -33,6 +33,9 @@ dependencies = [
     "fastembed>=0.4,<1.0",
     "groq>=0.20",
     "neo4j>=5.20,<6.0",
+    # KG entity alignment (#43a) — Levenshtein / token-sort ratio for fuzzy
+    # name matching. Prebuilt wheels for py3.12; no C++ compile at install.
+    "rapidfuzz>=3.10,<4.0",
     "langgraph>=0.2,<1.0",
     "prometheus-client>=0.21,<1.0",
     "python-json-logger>=3.2,<4.0",

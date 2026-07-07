@@ -184,9 +184,11 @@ GRAPH_EXTRACT_BACKOFF_SECONDS = (15, 30)  # sleep between attempt 1→2 and 2→
 async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
     # Best-effort: swallow errors so the worker stays non-blocking.
     try:
+        from app.graph.alignment import Candidate, align_batch
         from app.graph.extraction import safe_extract_entities
         from app.graph.neo4j_client import (
             ensure_indexes,
+            list_entity_candidates,
             upsert_entity,
             upsert_relationship,
         )
@@ -220,25 +222,42 @@ async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
         result = outcome.result
 
         await ensure_indexes()
-        for e in result.entities:
+
+        # Alignment (#43a): pull the user's existing entities as fuzzy-match
+        # candidates so this doc's writes converge on the shared KG instead
+        # of creating parallel islands ("GWU" vs "gwu.", "Kamalasankaris" vs
+        # "Kamalasankari" etc.). One Neo4j fetch per doc; the aligner runs
+        # in-memory from there.
+        existing_pairs = await list_entity_candidates(user_id)
+        existing = [Candidate(name_lower=nl, type=t) for nl, t in existing_pairs]
+        aligned_entities, aligned_rels = align_batch(
+            result.entities,
+            result.relationships,
+            existing,
+        )
+
+        for e in aligned_entities:
             await upsert_entity(
                 user_id=user_id,
                 document_id=document_id,
                 name=e.name,
+                name_lower=e.name_lower,
                 entity_type=e.type,
                 description=e.description,
             )
-        for r in result.relationships:
+        for r in aligned_rels:
             await upsert_relationship(
                 user_id=user_id,
                 document_id=document_id,
-                source=r.source,
-                target=r.target,
+                source_lower=r.source_lower,
+                target_lower=r.target_lower,
                 relation=r.relation,
             )
         log.info(
-            "graph: doc=%s entities=%d rels=%d",
+            "graph: doc=%s entities=%d rels=%d (aligned from %d ents, %d rels)",
             document_id,
+            len(aligned_entities),
+            len(aligned_rels),
             len(result.entities),
             len(result.relationships),
         )

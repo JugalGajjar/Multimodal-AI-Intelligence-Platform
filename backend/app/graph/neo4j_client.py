@@ -1,8 +1,13 @@
 """Async Neo4j driver singleton + small query helpers.
 
 Schema (multi-tenant via user_id property):
-    (:Entity {user_id, name, type, description, document_ids, ...})
+    (:Entity {user_id, name, name_lower, type, description, document_ids, ...})
     (a:Entity)-[:RELATES_TO {relation, document_ids}]->(b:Entity)
+
+Entities MERGE on (user_id, name_lower) so alignment collapses case/spacing
+variants into one node. `name` is the display form (first-write wins).
+Relationships MERGE on (source name_lower, target name_lower, relation).
+See app.graph.alignment for how raw extraction names get normalized.
 """
 
 from __future__ import annotations
@@ -36,20 +41,31 @@ async def close_driver() -> None:
 async def ensure_indexes() -> None:
     driver = await get_driver()
     async with driver.session() as session:
+        # Primary MERGE key since #43a — alignment layer collapses variants
+        # into one canonical name_lower per user.
+        await session.run(
+            "CREATE INDEX entity_user_name_lower IF NOT EXISTS "
+            "FOR (e:Entity) ON (e.user_id, e.name_lower)"
+        )
+        # Legacy index on `name` — kept for the display-name lookups the
+        # read paths still use (get_graph_snapshot, list_user_entities).
+        # The migration script backfills name_lower on existing entities.
         await session.run(
             "CREATE INDEX entity_user_name IF NOT EXISTS FOR (e:Entity) ON (e.user_id, e.name)"
         )
 
 
 _UPSERT_ENTITY_CYPHER = """
-MERGE (e:Entity {user_id: $user_id, name: $name})
+MERGE (e:Entity {user_id: $user_id, name_lower: $name_lower})
 ON CREATE SET
+    e.name = $name,
     e.type = $type,
     e.description = $description,
     e.created_at = datetime(),
     e.document_ids = [$doc_id]
 SET
     e.last_seen_at = datetime(),
+    e.name = coalesce(e.name, $name),
     e.type = coalesce(e.type, $type),
     e.description = coalesce(e.description, $description),
     e.document_ids = CASE
@@ -60,8 +76,8 @@ RETURN e
 """
 
 _UPSERT_REL_CYPHER = """
-MATCH (a:Entity {user_id: $user_id, name: $source})
-MATCH (b:Entity {user_id: $user_id, name: $target})
+MATCH (a:Entity {user_id: $user_id, name_lower: $source_lower})
+MATCH (b:Entity {user_id: $user_id, name_lower: $target_lower})
 MERGE (a)-[r:RELATES_TO {relation: $relation}]->(b)
 ON CREATE SET r.created_at = datetime(), r.document_ids = [$doc_id]
 SET r.document_ids = CASE
@@ -77,6 +93,7 @@ async def upsert_entity(
     user_id: str,
     document_id: str,
     name: str,
+    name_lower: str,
     entity_type: str,
     description: str,
 ) -> None:
@@ -87,6 +104,7 @@ async def upsert_entity(
             user_id=user_id,
             doc_id=document_id,
             name=name,
+            name_lower=name_lower,
             type=entity_type,
             description=description,
         )
@@ -96,8 +114,8 @@ async def upsert_relationship(
     *,
     user_id: str,
     document_id: str,
-    source: str,
-    target: str,
+    source_lower: str,
+    target_lower: str,
     relation: str,
 ) -> None:
     driver = await get_driver()
@@ -106,10 +124,28 @@ async def upsert_relationship(
             _UPSERT_REL_CYPHER,
             user_id=user_id,
             doc_id=document_id,
-            source=source,
-            target=target,
+            source_lower=source_lower,
+            target_lower=target_lower,
             relation=relation,
         )
+
+
+async def list_entity_candidates(user_id: str) -> list[tuple[str, str]]:
+    """Return (name_lower, type) tuples for every entity the user owns.
+
+    Used by alignment.align_batch as the pool of candidates that a new
+    entity may alias to. Small payload per row — cheap even with a few
+    thousand entities. See app.graph.alignment.Candidate.
+    """
+    driver = await get_driver()
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (e:Entity {user_id: $user_id}) "
+            "WHERE e.name_lower IS NOT NULL "
+            "RETURN e.name_lower AS name_lower, coalesce(e.type, 'Concept') AS type",
+            user_id=user_id,
+        )
+        return [(row["name_lower"], row["type"]) async for row in result]
 
 
 async def list_user_entities(user_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
