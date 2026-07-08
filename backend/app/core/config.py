@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     video_include_reasoning: bool = False
 
     groq_api_key: str = ""
+    # Optional pool of keys used in round-robin when set (comma-separated).
+    # When empty, the single `groq_api_key` above is used.
+    groq_api_keys: str = ""
     groq_whisper_model: str = "whisper-large-v3-turbo"
     # Default chat-answer model. Users can override per account via Settings
     # (see app.agents.models for the curated list); this is the fallback when
@@ -176,6 +179,12 @@ class Settings(BaseSettings):
     @property
     def redis_url(self) -> str:
         return f"redis://{self.redis_host}:{self.redis_port}/0"
+
+    @property
+    def groq_key_pool(self) -> list[str]:
+        if self.groq_api_keys:
+            return [k.strip() for k in self.groq_api_keys.split(",") if k.strip()]
+        return [self.groq_api_key] if self.groq_api_key else []
 
 
 @lru_cache
