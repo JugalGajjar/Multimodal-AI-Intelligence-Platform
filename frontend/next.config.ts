@@ -26,11 +26,15 @@ const apiOrigin = (() => {
 //   us.i.posthog.com     → us-assets.i.posthog.com
 //   eu.i.posthog.com     → eu-assets.i.posthog.com
 // We derive both so eu-hosted projects work with no extra config.
+// Gated on KEY presence (matches the provider) and falls back to the same
+// default host the provider uses — otherwise a build with KEY set but HOST
+// unset produces an asymmetric CSP that blocks the loaded PostHog script.
 const posthogOrigins = (() => {
-  const raw = process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim();
-  if (!raw) return [] as string[];
+  if (!process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim()) return [] as string[];
+  const rawHost =
+    process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim() || "https://us.i.posthog.com";
   try {
-    const u = new URL(raw);
+    const u = new URL(rawHost);
     const eventOrigin = `${u.protocol}//${u.host}`;
     const assetsHost = u.host.replace(".i.posthog.com", "-assets.i.posthog.com");
     const assetsOrigin = `${u.protocol}//${assetsHost}`;
