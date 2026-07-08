@@ -33,6 +33,13 @@ def legacy_mode(monkeypatch):
     monkeypatch.setattr(settings, "graph_extraction_map_reduce", False)
 
 
+@pytest.fixture
+def no_reconcile(monkeypatch):
+    """Disable Phase 3 reconciliation. Map-reduce tests that assert on exact
+    LLM call counts opt in so a reconciliation pass doesn't fire extra calls."""
+    monkeypatch.setattr(settings, "graph_extraction_reconcile", False)
+
+
 # ---------------------------------------------------------------------------
 # Empty-input / smoke
 # ---------------------------------------------------------------------------
@@ -597,3 +604,251 @@ class TestPromptContract:
         parsed = json.loads(obj)
         assert "entities" in parsed
         assert "relationships" in parsed
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — cross-chunk relation reconciliation (#43b)
+# ---------------------------------------------------------------------------
+
+
+class TestCooccurrenceScore:
+    """Deterministic scoring — no async, no LLM."""
+
+    def test_same_chunk_scores_three(self):
+        assert extraction._cooccurrence_score(frozenset({0}), frozenset({0})) == 3
+
+    def test_adjacent_chunks_score_two(self):
+        assert extraction._cooccurrence_score(frozenset({0}), frozenset({1})) == 2
+
+    def test_nearby_scores_one(self):
+        assert extraction._cooccurrence_score(frozenset({0}), frozenset({3})) == 1
+
+    def test_far_apart_scores_zero(self):
+        assert extraction._cooccurrence_score(frozenset({0}), frozenset({10})) == 0
+
+    def test_multiple_pairings_accumulate(self):
+        # a in chunks {0,1}, b in chunks {0,2}
+        #   pairings: (0,0)=+3, (0,2)=+1, (1,0)=+2, (1,2)=+2 → 8
+        s = extraction._cooccurrence_score(frozenset({0, 1}), frozenset({0, 2}))
+        assert s == 8
+
+
+class TestGatherSnippets:
+    def test_picks_up_to_max(self):
+        chunks = ["one", "two", "three", "four", "five"]
+        out = extraction._gather_snippets(
+            chunks, frozenset({0, 2, 4}), max_snippets=2, max_chars=100
+        )
+        # Sorted-then-take: {0, 2, 4} → [0, 2] → "one" then "three".
+        assert "one" in out and "three" in out
+        assert "five" not in out
+
+    def test_truncates_each_snippet(self):
+        chunks = ["A" * 1000]
+        out = extraction._gather_snippets(chunks, frozenset({0}), max_snippets=1, max_chars=50)
+        # Snippet trimmed to 50 chars.
+        assert len(out.strip()) <= 50
+
+    def test_skips_out_of_range_indices(self):
+        chunks = ["only"]
+        # Index 5 doesn't exist — should be silently dropped, not raise.
+        out = extraction._gather_snippets(chunks, frozenset({0, 5}), max_snippets=5, max_chars=100)
+        assert "only" in out
+
+
+class TestReconciliation:
+    """Reconciliation-phase behavior when it actually fires — requires
+    ≥2 unique entities across chunks, and pairs with score>0."""
+
+    async def test_disabled_flag_skips_reconciliation(self, no_reconcile, monkeypatch):
+        # Configure a scenario that WOULD produce candidates, then flip the
+        # flag off — no extra LLM calls should fire.
+        plan = iter(
+            [
+                _entity_json(("A", "Person"), ("B", "Organization")),  # c0 pass1
+                _relation_json(),  # c0 pass2 (empty)
+                _entity_json(("C", "Person")),  # c1 pass1
+                _relation_json(),  # c1 pass2
+            ]
+        )
+        call_count = {"n": 0}
+
+        async def fake_chat(**_kwargs):
+            call_count["n"] += 1
+            return next(plan)
+
+        monkeypatch.setattr("app.graph.extraction.chat_completion", fake_chat)
+        await extraction.extract_entities_from_chunks(["c0", "c1"])
+        # Exactly 4 calls — 2 chunks × 2 passes. No reconciliation.
+        assert call_count["n"] == 4
+
+    async def test_reconciliation_fires_for_cross_chunk_dangling_pair(self, monkeypatch):
+        """Alice in chunk 0, Bob in chunk 1 → they never share a chunk, so
+        Pass 2 can't relate them. Reconciliation should catch it."""
+
+        async def fake_chat(*, messages, **_kwargs):
+            system = messages[0]["content"]
+            user = messages[1]["content"]
+            if "listing the named entities" in system:
+                # Pass 1 for whichever chunk we're on.
+                if "chunk zero" in user:
+                    return _entity_json(("Alice", "Person"))
+                return _entity_json(("Bob", "Person"))
+            if "every relation the passage supports" in system:
+                # Pass 2 — no relations (Alice never mentioned Bob directly).
+                return json.dumps({"relationships": []})
+            # Reconciliation prompt — assert we got asked about Alice/Bob,
+            # then affirm.
+            assert "Alice" in user and "Bob" in user
+            return json.dumps({"relation": "knows", "direction": "AB"})
+
+        monkeypatch.setattr("app.graph.extraction.chat_completion", fake_chat)
+        result = await extraction.extract_entities_from_chunks(["chunk zero", "chunk one"])
+        # The reconciliation-emitted relation lands in the union.
+        assert any(
+            r.source == "Alice" and r.target == "Bob" and r.relation == "knows"
+            for r in result.relationships
+        )
+
+    async def test_reconciliation_respects_direction_ba(self, monkeypatch):
+        """When the model returns direction='BA', source/target are flipped
+        relative to the pair's (A, B) assignment. Pairs are enumerated by
+        sorted name_lower, so 'alice' < 'book' → A=Alice, B=Book, BA means
+        Book → Alice."""
+
+        async def fake_chat(*, messages, **_kwargs):
+            system = messages[0]["content"]
+            user = messages[1]["content"]
+            if "listing the named entities" in system:
+                # Alice in c0, Book in c1.
+                return (
+                    _entity_json(("Alice", "Person"))
+                    if "c0" in user
+                    else _entity_json(("Book", "Product"))
+                )
+            if "every relation the passage supports" in system:
+                return json.dumps({"relationships": []})
+            return json.dumps({"relation": "authored by", "direction": "BA"})
+
+        monkeypatch.setattr("app.graph.extraction.chat_completion", fake_chat)
+        result = await extraction.extract_entities_from_chunks(["c0", "c1"])
+        # Sorted keys: alice, book → A=Alice, B=Book. BA flips → source=Book,
+        # target=Alice. Relation "authored by" reads "Book authored by Alice",
+        # matching the direction flip.
+        assert any(
+            r.source == "Book" and r.target == "Alice" and r.relation == "authored by"
+            for r in result.relationships
+        )
+
+    async def test_reconciliation_skips_pairs_pass2_already_emitted(self, monkeypatch):
+        """If Pass 2 already emitted (A, B), reconciliation must NOT re-ask
+        about that pair — waste of a Groq call."""
+
+        async def fake_chat(*, messages, **_kwargs):
+            system = messages[0]["content"]
+            user = messages[1]["content"]
+            if "listing the named entities" in system:
+                return _entity_json(("A", "Person"), ("B", "Organization"))
+            if "every relation the passage supports" in system:
+                return _relation_json(("A", "B", "works at"))
+            # Reconciliation must not be reached — pair already handled.
+            # If it does reach here, blow up so the test catches the leak.
+            raise AssertionError(f"unexpected reconciliation call: {user!r}")
+
+        monkeypatch.setattr("app.graph.extraction.chat_completion", fake_chat)
+        result = await extraction.extract_entities_from_chunks(["chunk"])
+        assert len(result.relationships) == 1
+
+    async def test_reconciliation_null_response_adds_no_relation(self, monkeypatch):
+        """When the model returns {"relation": null}, no relation is added
+        even though the pair was asked about."""
+
+        async def fake_chat(*, messages, **_kwargs):
+            system = messages[0]["content"]
+            if "listing the named entities" in system:
+                user = messages[1]["content"]
+                return (
+                    _entity_json(("A", "Person")) if "c0" in user else _entity_json(("B", "Person"))
+                )
+            if "every relation the passage supports" in system:
+                return json.dumps({"relationships": []})
+            # Reconciliation — explicit "no relation".
+            return json.dumps({"relation": None})
+
+        monkeypatch.setattr("app.graph.extraction.chat_completion", fake_chat)
+        result = await extraction.extract_entities_from_chunks(["c0", "c1"])
+        # Pass 2 produced no rels; reconciliation returned null; total = 0.
+        assert result.relationships == []
+
+    async def test_reconciliation_bounded_by_top_k(self, monkeypatch):
+        """Only top_k candidate pairs get an LLM call, no matter how many
+        unrelated pairs exist."""
+        monkeypatch.setattr(settings, "graph_extraction_reconcile_top_k", 2)
+
+        # 4 chunks, each with one unique entity → all pairs are dangling.
+        # C(4,2) = 6 candidate pairs. With top_k=2, only 2 reconcile calls.
+        entity_names = ["A", "B", "C", "D"]
+
+        reconcile_calls = {"n": 0}
+
+        async def fake_chat(*, messages, **_kwargs):
+            system = messages[0]["content"]
+            user = messages[1]["content"]
+            if "listing the named entities" in system:
+                # Return the entity for whichever chunk we're on.
+                for name in entity_names:
+                    if f"chunk {name}" in user:
+                        return _entity_json((name, "Concept"))
+                return _entity_json(())
+            if "every relation the passage supports" in system:
+                return json.dumps({"relationships": []})
+            # Reconciliation
+            reconcile_calls["n"] += 1
+            return json.dumps({"relation": None})
+
+        monkeypatch.setattr("app.graph.extraction.chat_completion", fake_chat)
+        await extraction.extract_entities_from_chunks([f"chunk {n}" for n in entity_names])
+        # At most top_k=2 reconciliation calls, not 6.
+        assert reconcile_calls["n"] <= 2
+
+    async def test_reconciliation_upstream_failure_does_not_crash(self, monkeypatch):
+        """A 429 during reconciliation drops that pair silently — other work
+        still lands. Whole batch must not fail."""
+
+        async def fake_chat(*, messages, **_kwargs):
+            system = messages[0]["content"]
+            if "listing the named entities" in system:
+                user = messages[1]["content"]
+                return (
+                    _entity_json(("A", "Person")) if "c0" in user else _entity_json(("B", "Person"))
+                )
+            if "every relation the passage supports" in system:
+                return json.dumps({"relationships": []})
+            raise GroqChatError(429, {"detail": "rate"})
+
+        monkeypatch.setattr("app.graph.extraction.chat_completion", fake_chat)
+        result = await extraction.extract_entities_from_chunks(["c0", "c1"])
+        # Reconciliation failed; entities from Pass 1 still land.
+        assert {e.name for e in result.entities} == {"A", "B"}
+
+
+class TestReconciliationPromptContract:
+    def test_reconcile_prompt_schema_is_valid_json(self):
+        obj = extraction._extract_json_object(extraction.SYSTEM_PROMPT_RECONCILE)
+        assert obj is not None
+        parsed = json.loads(obj)
+        assert "relation" in parsed
+        assert "direction" in parsed
+
+    def test_reconcile_prompt_requires_null_on_uncertain(self):
+        low = extraction.SYSTEM_PROMPT_RECONCILE.lower()
+        assert "null" in low
+        assert "if uncertain" in low or "if no relation" in low
+
+    def test_reconcile_prompt_forbids_common_knowledge_fabrication(self):
+        low = extraction.SYSTEM_PROMPT_RECONCILE.lower()
+        assert "common knowledge" in low or "do not invent" in low
+
+    def test_reconcile_prompt_is_domain_neutral(self):
+        low = extraction.SYSTEM_PROMPT_RECONCILE.lower()
+        assert "medical" in low or "legal" in low or "any domain" in low

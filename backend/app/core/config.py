@@ -159,6 +159,13 @@ class Settings(BaseSettings):
     # to False to fall back to the pre-#43 single-shot behavior.
     graph_extraction_map_reduce: bool = True
 
+    # After map-reduce merge, run one targeted LLM call per top-scored
+    # cross-chunk entity pair to catch relations that Pass 2 (chunk-local)
+    # missed. Independently flaggable — disable if the extra calls hit the
+    # Groq quota. #43b.
+    graph_extraction_reconcile: bool = True
+    graph_extraction_reconcile_top_k: int = 40
+
     # Intent router classifies the query and branches the workflow. When
     # disabled, every turn takes the "chat" path.
     router_enabled: bool = True

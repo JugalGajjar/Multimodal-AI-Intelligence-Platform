@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 
 from app.core.config import settings
@@ -453,6 +454,244 @@ def _merge_results(results: list[ExtractionResult]) -> ExtractionResult:
     return ExtractionResult(entities=entities, relationships=relationships)
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 — cross-chunk relation reconciliation (#43b)
+# ---------------------------------------------------------------------------
+
+# Pair reconciliation prompt. Short output (one predicate + direction or null)
+# so max_tokens can stay tight — many small calls beat few large ones under
+# Groq's TPM ceiling.
+SYSTEM_PROMPT_RECONCILE = (
+    "You are checking whether a text unambiguously supports a factual relation "
+    "between two named entities. You will be given two entities and text "
+    "snippets from a single document that mention them. Works across any "
+    "domain — medical, legal, business, scientific, technical.\n\n"
+    "STRICT JSON schema:\n"
+    "{\n"
+    '  "relation": "short verb phrase or null",\n'
+    '  "direction": "AB or BA"\n'
+    "}\n\n"
+    "Rules:\n"
+    "- Only assert a relation the text clearly supports. If uncertain, return "
+    '{"relation": null}.\n'
+    "- Do NOT invent relations from common knowledge or plausible inference — "
+    "only from what the snippets actually say.\n"
+    "- Relation verb phrase must be short (1-4 words): e.g. 'authored', "
+    "'affiliated with', 'outperforms', 'located in', 'treats', 'cites'.\n"
+    "- Direction picks the natural reading of the text: 'AB' means A → B "
+    "('Alice authored Book' → AB); 'BA' means B → A ('Book authored by Alice' "
+    "→ BA). Choose whichever the snippets support.\n"
+    "- Output JSON ONLY (no markdown fences, no commentary).\n"
+    '- If no relation is supported, return {"relation": null}.'
+)
+
+
+RECONCILE_MAX_SNIPPETS = 3
+RECONCILE_SNIPPET_CHARS = 500
+RECONCILE_MAX_TOKENS = 512  # output is tiny — cap keeps TPM footprint low
+
+
+def _cooccurrence_score(chunks_a: frozenset[int], chunks_b: frozenset[int]) -> int:
+    """Higher score = pair is more likely to be genuinely related.
+
+    Same chunk (+3): Pass 2 for that chunk already had a shot but sometimes
+      misses — still worth a targeted check. Adjacent (+2) and nearby-≤3
+      (+1) approximate section-level proximity in section-aware chunking.
+    """
+    score = 0
+    for a in chunks_a:
+        for b in chunks_b:
+            gap = abs(a - b)
+            if gap == 0:
+                score += 3
+            elif gap == 1:
+                score += 2
+            elif gap <= 3:
+                score += 1
+    return score
+
+
+def _gather_snippets(
+    chunks: list[str],
+    indices: frozenset[int],
+    max_snippets: int,
+    max_chars: int,
+) -> str:
+    """Concatenate up to *max_snippets* chunk texts, each truncated to
+    *max_chars*, separated by a visual break so the model can see boundaries."""
+    picked = sorted(indices)[:max_snippets]
+    parts: list[str] = []
+    for i in picked:
+        if 0 <= i < len(chunks):
+            snippet = (chunks[i] or "").strip()[:max_chars]
+            if snippet:
+                parts.append(snippet)
+    return "\n\n---\n\n".join(parts)
+
+
+async def _reconcile_pair(
+    *,
+    name_a: str,
+    name_b: str,
+    type_a: str,
+    type_b: str,
+    snippet_a: str,
+    snippet_b: str,
+    semaphore: asyncio.Semaphore,
+) -> GraphRelationship | None:
+    """One LLM call to decide if a doc supports a relation between A and B.
+
+    Returns a GraphRelationship (source/target set per returned direction)
+    or None when the model declines / errors / bad JSON.
+    """
+    user_msg = (
+        f"Entity A: name={name_a!r}, type={type_a!r}\n"
+        f"Entity B: name={name_b!r}, type={type_b!r}\n\n"
+        f"Snippets from the document mentioning A:\n{snippet_a}\n\n"
+        f"Snippets from the document mentioning B:\n{snippet_b}"
+    )
+    try:
+        async with semaphore:
+            raw = await chat_completion(
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_RECONCILE},
+                    {"role": "user", "content": user_msg},
+                ],
+                model=settings.groq_extraction_model,
+                temperature=0.0,
+                # Low reasoning: this is a binary+labeling task, not deep
+                # inference. Keeps per-call TPM footprint minimal so we can
+                # fit many pair checks under the Groq ceiling.
+                max_tokens=RECONCILE_MAX_TOKENS,
+                reasoning_effort="low",
+                response_format={"type": "json_object"},
+            )
+    except GroqChatError as exc:
+        log.info("reconcile pair upstream failure (%s)", exc.status_code)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        log.warning("reconcile pair unexpected: %s", exc)
+        return None
+
+    data = _load_json(raw)
+    if data is None:
+        return None
+    relation = data.get("relation")
+    if relation is None or not isinstance(relation, str) or not relation.strip():
+        return None
+    predicate = relation.strip()
+    direction = str(data.get("direction") or "AB").strip().upper()
+
+    src, tgt = (name_a, name_b) if direction != "BA" else (name_b, name_a)
+    try:
+        return GraphRelationship(source=src, target=tgt, relation=predicate)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _reconcile_relations(
+    *,
+    chunks: list[str],
+    chunk_entities: dict[int, list[GraphEntity]],
+    existing: ExtractionResult,
+    semaphore: asyncio.Semaphore,
+    top_k: int,
+) -> list[GraphRelationship]:
+    """Cross-chunk relation reconciliation. See #43b.
+
+    For each candidate pair (A, B) of extracted entities, gather text
+    snippets from chunks where each appears, and ask the LLM whether the
+    document supports a relation between them. Bounded by *top_k* candidates
+    scored by co-occurrence proximity across chunks.
+
+    Returns any new relations the model asserts — merged into the extraction
+    result by the caller. Alignment (see `app.graph.alignment.align_batch`)
+    deduplicates and canonicalizes downstream.
+    """
+    if not chunk_entities or top_k <= 0:
+        return []
+
+    # entity_key (name_lower) → chunk indices it appeared in, plus display/type
+    e_to_chunks: dict[str, set[int]] = defaultdict(set)
+    e_type: dict[str, str] = {}
+    e_display: dict[str, str] = {}
+    for chunk_idx, ents in chunk_entities.items():
+        for e in ents:
+            key = (e.name or "").strip().lower()
+            if not key:
+                continue
+            e_to_chunks[key].add(chunk_idx)
+            e_type.setdefault(key, e.type)
+            e_display.setdefault(key, e.name)
+
+    if len(e_to_chunks) < 2:
+        return []
+
+    # Existing relation pairs — both directions, so we don't re-ask about
+    # any (A, B) or (B, A) already emitted by Pass 2.
+    existing_pairs: set[frozenset[str]] = set()
+    for r in existing.relationships:
+        a = (r.source or "").strip().lower()
+        b = (r.target or "").strip().lower()
+        if a and b and a != b:
+            existing_pairs.add(frozenset((a, b)))
+
+    # Score all unrelated pairs, keep top_k.
+    keys = sorted(e_to_chunks.keys())
+    scored: list[tuple[int, str, str]] = []
+    for i, key_a in enumerate(keys):
+        for key_b in keys[i + 1 :]:
+            if frozenset((key_a, key_b)) in existing_pairs:
+                continue
+            if e_type.get(key_a) != e_type.get(key_b):
+                pass  # cross-type pairs are valid (Person↔Org etc.); no filter
+            score = _cooccurrence_score(
+                frozenset(e_to_chunks[key_a]),
+                frozenset(e_to_chunks[key_b]),
+            )
+            if score > 0:
+                scored.append((score, key_a, key_b))
+
+    if not scored:
+        log.info("reconcile: no candidate pairs")
+        return []
+
+    scored.sort(key=lambda t: -t[0])
+    top = scored[:top_k]
+
+    async def _one(pair: tuple[int, str, str]) -> GraphRelationship | None:
+        _score, ka, kb = pair
+        return await _reconcile_pair(
+            name_a=e_display[ka],
+            name_b=e_display[kb],
+            type_a=e_type[ka],
+            type_b=e_type[kb],
+            snippet_a=_gather_snippets(
+                chunks,
+                frozenset(e_to_chunks[ka]),
+                RECONCILE_MAX_SNIPPETS,
+                RECONCILE_SNIPPET_CHARS,
+            ),
+            snippet_b=_gather_snippets(
+                chunks,
+                frozenset(e_to_chunks[kb]),
+                RECONCILE_MAX_SNIPPETS,
+                RECONCILE_SNIPPET_CHARS,
+            ),
+            semaphore=semaphore,
+        )
+
+    results = await asyncio.gather(*[_one(p) for p in top])
+    new_rels = [r for r in results if r is not None]
+    log.info(
+        "reconcile: candidates=%d checked=%d new_rels=%d",
+        len(scored),
+        len(top),
+        len(new_rels),
+    )
+    return new_rels
+
+
 def _default_concurrency() -> int:
     """Match Groq key pool size so each in-flight call naturally lands on
     its own key (no TPM contention within a key's budget). Falls back to
@@ -474,6 +713,11 @@ async def extract_entities_from_chunks(
     one chunk 429ing doesn't cancel the others. Returns the concatenated
     ExtractionResult across all successful chunks — downstream `align_batch`
     handles cross-chunk canonicalization.
+
+    When `graph_extraction_reconcile` is on, a Phase 3 cross-chunk
+    reconciliation pass runs after merge and adds relations Pass 2 missed
+    (entities that appear in different chunks and never met each other in
+    a single chunk's Pass 2 prompt).
     """
     non_empty = [c for c in chunks if c and c.strip()]
     if not non_empty:
@@ -487,14 +731,37 @@ async def extract_entities_from_chunks(
 
     ok_count = sum(1 for _, transient in per_chunk if not transient)
     results = [r for r, _ in per_chunk]
+
+    # Track per-chunk entities for reconciliation candidate scoring — index
+    # matches `non_empty` since map order is preserved by asyncio.gather.
+    chunk_entities: dict[int, list[GraphEntity]] = {
+        i: list(r.entities) for i, r in enumerate(results)
+    }
+
+    merged = _merge_results(results)
     log.info(
         "extract: chunks=%d/%d ok, ents=%d rels=%d",
         ok_count,
         len(non_empty),
-        sum(len(r.entities) for r in results),
-        sum(len(r.relationships) for r in results),
+        len(merged.entities),
+        len(merged.relationships),
     )
-    return _merge_results(results)
+
+    if settings.graph_extraction_reconcile:
+        new_rels = await _reconcile_relations(
+            chunks=non_empty,
+            chunk_entities=chunk_entities,
+            existing=merged,
+            semaphore=semaphore,
+            top_k=settings.graph_extraction_reconcile_top_k,
+        )
+        if new_rels:
+            merged = ExtractionResult(
+                entities=merged.entities,
+                relationships=merged.relationships + new_rels,
+            )
+
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -600,6 +867,10 @@ async def safe_extract_entities(chunks: list[str]) -> ExtractionOutcome:
             results = [r for r, _ in per_chunk]
             transient_flags = [t for _, t in per_chunk]
             ok_count = sum(1 for t in transient_flags if not t)
+
+            chunk_entities: dict[int, list[GraphEntity]] = {
+                i: list(r.entities) for i, r in enumerate(results)
+            }
             merged = _merge_results(results)
             log.info(
                 "extract: chunks=%d/%d ok, ents=%d rels=%d",
@@ -608,6 +879,23 @@ async def safe_extract_entities(chunks: list[str]) -> ExtractionOutcome:
                 len(merged.entities),
                 len(merged.relationships),
             )
+
+            # Reconciliation (#43b) — cross-chunk relations Pass 2 missed
+            # because it only saw its own chunk's entity list.
+            if settings.graph_extraction_reconcile:
+                new_rels = await _reconcile_relations(
+                    chunks=non_empty,
+                    chunk_entities=chunk_entities,
+                    existing=merged,
+                    semaphore=semaphore,
+                    top_k=settings.graph_extraction_reconcile_top_k,
+                )
+                if new_rels:
+                    merged = ExtractionResult(
+                        entities=merged.entities,
+                        relationships=merged.relationships + new_rels,
+                    )
+
             # Transient failure iff EVERY chunk failed transiently. Any
             # partial success means retrying is unlikely to help.
             all_transient = ok_count == 0 and all(transient_flags)
