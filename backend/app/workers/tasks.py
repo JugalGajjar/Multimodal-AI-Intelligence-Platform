@@ -89,7 +89,7 @@ async def process_document_ocr(ctx: dict[str, Any], document_id: str) -> str:
             # them, so failures here must not fail the document.
             if text.strip():
                 await _ingest_graph(
-                    text=text,
+                    chunks=[r.text for r in chunk_rows] or [text],
                     user_id=str(doc.user_id),
                     document_id=str(doc.id),
                 )
@@ -181,7 +181,7 @@ GRAPH_EXTRACT_MAX_ATTEMPTS = 3
 GRAPH_EXTRACT_BACKOFF_SECONDS = (15, 30)  # sleep between attempt 1→2 and 2→3
 
 
-async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
+async def _ingest_graph(*, chunks: list[str], user_id: str, document_id: str) -> None:
     # Best-effort: swallow errors so the worker stays non-blocking.
     try:
         from app.graph.alignment import Candidate, align_batch
@@ -197,7 +197,7 @@ async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
         # extraction that returned 0 entities on upload will often return
         # 20+ on a manual reindex 60-120s later. Retry transient failures
         # in-line so the user's graph populates without a manual click.
-        outcome = await safe_extract_entities(text)
+        outcome = await safe_extract_entities(chunks)
         for attempt in range(2, GRAPH_EXTRACT_MAX_ATTEMPTS + 1):
             if outcome.result.entities or not outcome.transient_failure:
                 break
@@ -210,7 +210,7 @@ async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
                 sleep_for,
             )
             await asyncio.sleep(sleep_for)
-            outcome = await safe_extract_entities(text)
+            outcome = await safe_extract_entities(chunks)
 
         if not outcome.result.entities:
             log.info(
@@ -254,8 +254,9 @@ async def _ingest_graph(*, text: str, user_id: str, document_id: str) -> None:
                 relation=r.relation,
             )
         log.info(
-            "graph: doc=%s entities=%d rels=%d (aligned from %d ents, %d rels)",
+            "graph: doc=%s chunks=%d entities=%d rels=%d (aligned from %d ents, %d rels)",
             document_id,
+            len(chunks),
             len(aligned_entities),
             len(aligned_rels),
             len(result.entities),
@@ -348,15 +349,21 @@ async def reindex_graph_for_document(ctx: dict[str, Any], document_id: str) -> s
         )
         rows = (await db.execute(stmt)).scalars().all()
 
-    # Prefer the cleaned chunk join; fall back to extracted_text for legacy rows.
-    text = "\n\n".join(r.text for r in rows) if rows else (doc.extracted_text or "")
+    # Prefer stored chunk rows; fall back to extracted_text as a single
+    # chunk for legacy docs indexed before chunking existed.
+    if rows:
+        chunk_texts = [r.text for r in rows]
+    elif doc.extracted_text and doc.extracted_text.strip():
+        chunk_texts = [doc.extracted_text]
+    else:
+        chunk_texts = []
 
-    if not text.strip():
+    if not any(t.strip() for t in chunk_texts):
         log.info("reindex_graph: doc %s has no text — nothing to extract", document_id)
         return "no-text"
 
     await _ingest_graph(
-        text=text,
+        chunks=chunk_texts,
         user_id=str(doc.user_id),
         document_id=str(doc.id),
     )

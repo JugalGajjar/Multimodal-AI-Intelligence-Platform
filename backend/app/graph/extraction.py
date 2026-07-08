@@ -1,6 +1,17 @@
-"""LLM-driven entity & relationship extraction with backoff.
+"""LLM-driven entity & relationship extraction.
 
-Retry rules:
+Two paths, feature-flagged by `settings.graph_extraction_map_reduce`:
+
+- **Map-reduce (default, #43)**: per-chunk two-pass extraction — Pass 1 emits
+  entities from a single chunk, Pass 2 emits relations given that chunk's
+  entity list. Chunks run concurrently under a semaphore whose size matches
+  the Groq key pool (each in-flight call naturally lands on its own key).
+  Failures are per-chunk isolated: one 429 doesn't sink the whole doc.
+
+- **Single-shot (legacy)**: send the whole (truncated) doc in one call.
+  Preserved for feature-flag rollback; delete when the flag comes out.
+
+Retry rules for the legacy path:
   429 with hint ≤ 30s  → sleep + retry (per-minute cap), up to MAX_RETRIES.
   429 with hint > 30s  → bail (daily cap; worker shouldn't block).
   400 json_validate    → retry once (model is non-deterministic).
@@ -15,7 +26,7 @@ import re
 from dataclasses import dataclass
 
 from app.core.config import settings
-from app.graph.schema import ExtractionResult
+from app.graph.schema import ExtractionResult, GraphEntity, GraphRelationship
 from app.rag.groq_chat import GroqChatError, chat_completion
 
 
@@ -32,6 +43,95 @@ class ExtractionOutcome:
 
 log = logging.getLogger("mmap.graph.extraction")
 
+
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
+
+# Pass 1 — entities only. Domain-neutral. Explicitly skips Date entities
+# (general modeling principle: dates describing when something happened
+# are attributes of the connected entity, not entities themselves).
+SYSTEM_PROMPT_ENTITIES = (
+    "You are an information extraction system. Read the passage and produce a "
+    "JSON object listing the named entities mentioned. Works across any domain "
+    "— medical, legal, business, scientific, technical.\n\n"
+    "STRICT JSON schema (type is exactly one of the seven allowed values):\n"
+    "{\n"
+    '  "entities": [\n'
+    '    {"name": "canonical noun phrase", "type": "Person", '
+    '"description": "2-6 word tag"}\n'
+    "  ]\n"
+    "}\n"
+    "Allowed entity types: Person, Organization, Location, Concept, "
+    "Technology, Product, Event.\n\n"
+    "Rules:\n"
+    '- Names must be canonical (no pronouns, drop articles like "the").\n'
+    "- If unsure of entity type, use Concept.\n"
+    "- Prefer named, specific entities; skip generic words.\n"
+    "- Descriptions MUST be a 2-6 word tag (role, category, or one-liner) "
+    "— never a full sentence. Long descriptions waste output tokens.\n"
+    "- Do NOT create a Date entity. Timestamps that describe when something "
+    "happened (a job start date, a publication month, a conference year) "
+    "belong as attributes of the connected entity, not as entities in "
+    "their own right. Omit them.\n"
+    "- Output JSON ONLY (no markdown fences, no commentary).\n"
+    '- Return {"entities": []} only when the passage has no named entities at all.'
+)
+
+# Pass 2 — relations given entity list. Domain-neutral. Cannot invent new
+# entity names (source/target must appear in the provided list). One
+# domain-neutral few-shot example demonstrating apposition, comparison,
+# and possessive prose patterns.
+SYSTEM_PROMPT_RELATIONS = (
+    "You are an information extraction system. Given a text passage and a list "
+    "of entities already extracted from it, produce a JSON object listing "
+    "every relation the passage supports between those listed entities. Works "
+    "across any domain.\n\n"
+    "STRICT JSON schema:\n"
+    "{\n"
+    '  "relationships": [\n'
+    '    {"source": "entity name", "target": "entity name", '
+    '"relation": "short verb phrase"}\n'
+    "  ]\n"
+    "}\n\n"
+    "Rules:\n"
+    "- source and target MUST both be names that appear in the provided entity "
+    "list. Do not invent new entity names.\n"
+    "- You MUST extract every relation the passage implies, including relations "
+    "expressed through:\n"
+    '  * apposition or parentheses ("Jane Smith (MIT)" → Smith affiliated with MIT)\n'
+    "  * juxtaposition on the same line (title-slide bylines, author lists,\n"
+    "    tables where a row groups related entities)\n"
+    '  * comparison and result verbs ("outperforms", "reduces", "increases", "cites")\n'
+    '  * possessive or attributive prose ("Anthropic\'s Claude", "the FDA-approved drug")\n'
+    "- Slide, OCR, and bullet-list text is often compact — infer the relation "
+    "from proximity when the surrounding text makes it unambiguous.\n"
+    "- Output JSON ONLY (no markdown fences, no commentary).\n"
+    '- Return {"relationships": []} only when the passage supports NO relations '
+    "between the listed entities.\n\n"
+    "Example (illustrates apposition + comparison + implicit relations — the "
+    "domain is illustrative, apply the same reasoning to whatever passage "
+    "you receive):\n"
+    'TEXT: "Jane Smith (MIT) proposes TinyGraph — a variant that outperforms '
+    'GraphBERT on the WebQA benchmark."\n'
+    'ENTITIES: [{"name":"Jane Smith","type":"Person"},{"name":"MIT",'
+    '"type":"Organization"},{"name":"TinyGraph","type":"Technology"},'
+    '{"name":"GraphBERT","type":"Technology"},{"name":"WebQA","type":"Concept"}]\n'
+    "OUTPUT:\n"
+    "{\n"
+    '  "relationships": [\n'
+    '    {"source": "Jane Smith", "target": "MIT", "relation": "affiliated with"},\n'
+    '    {"source": "Jane Smith", "target": "TinyGraph", "relation": "proposes"},\n'
+    '    {"source": "TinyGraph", "target": "GraphBERT", "relation": "outperforms"},\n'
+    '    {"source": "TinyGraph", "target": "WebQA", "relation": "evaluated on"}\n'
+    "  ]\n"
+    "}"
+)
+
+
+# Legacy single-shot prompt — kept as a self-contained string behind the
+# feature flag so `GRAPH_EXTRACTION_MAP_REDUCE=false` reverts to the pre-#43
+# behavior exactly. Delete when the flag comes out.
 SYSTEM_PROMPT = (
     "You are an information extraction system. Read the passage and produce a "
     "JSON object describing the entities mentioned and how they relate. Works "
@@ -90,15 +190,19 @@ SYSTEM_PROMPT = (
     "}"
 )
 
-
+# Legacy path caps input length to fit the pre-#43 single call. Not used
+# on the map-reduce path (chunks are already bounded by chunker).
 MAX_INPUT_CHARS = 12_000
 MAX_RETRIES = 3
 RETRY_BACKOFF_CAP_SECONDS = 30.0
-# Wait hints longer than this are treated as a daily cap.
 RETRY_GIVE_UP_SECONDS = 30.0
 
 
-# Groq messages: "Please try again in 4.8s" / "in 17.3325s" / "in 14m20.112s"
+# ---------------------------------------------------------------------------
+# Groq retry-hint parsing (legacy path only)
+# ---------------------------------------------------------------------------
+
+
 _RETRY_AFTER_PATTERNS = (
     re.compile(r"try again in (\d+)m([\d.]+)s", re.IGNORECASE),
     re.compile(r"try again in ([\d.]+)s", re.IGNORECASE),
@@ -143,46 +247,23 @@ def _is_json_validate_failure(exc: GroqChatError) -> bool:
     return "validate json" in msg or "json_validate_failed" in msg
 
 
-async def _call_llm(text: str) -> str:
-    return await chat_completion(
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": text},
-        ],
-        model=settings.groq_extraction_model,
-        temperature=0.0,
-        # reasoning_effort="medium" — graph extraction needs proper reasoning
-        # to infer relations from proximity/apposition; "low" would revert to
-        # the observed "8 entities, 0 relations" behavior we saw in prod.
-        # max_tokens=5120 (was 8192 in #42a) — Groq free tier caps gpt-oss
-        # at 8000 TPM AND enforces the cap on individual requests. 8192 +
-        # input + system prompt exceeded 8000 → 413. 5120 keeps single
-        # calls under the ceiling while still fitting ~80 entities with
-        # the #42a terse-description rule ("2-6 word tag"). Proper fix is
-        # the planned #43 map-reduce redesign — this is the interim ceiling.
-        max_tokens=5120,
-        reasoning_effort="medium",
-        response_format={"type": "json_object"},
-    )
+# ---------------------------------------------------------------------------
+# JSON recovery
+# ---------------------------------------------------------------------------
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
 
 
 def _extract_json_object(raw: str) -> str | None:
-    # Lift the first JSON object out, tolerating fences and prose preamble.
     if not raw:
         return None
-
     fenced = _JSON_FENCE_RE.search(raw)
     if fenced:
         return fenced.group(1)
-
-    # Walk braces while respecting string literals so a `"}"` doesn't fool us.
     start = raw.find("{")
     if start < 0:
         return None
-
     depth = 0
     in_str = False
     escape = False
@@ -207,35 +288,251 @@ def _extract_json_object(raw: str) -> str | None:
     return None
 
 
-def _parse_response(raw: str) -> ExtractionResult:
+def _load_json(raw: str) -> dict | None:
+    """Robust JSON load: tolerates markdown fences and prose preamble."""
     try:
-        data = json.loads(raw)
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else None
     except json.JSONDecodeError:
         recovered = _extract_json_object(raw)
         if recovered is None:
-            log.warning("entity extraction returned non-JSON: %r", raw[:200])
-            return ExtractionResult(entities=[], relationships=[])
+            return None
         try:
-            data = json.loads(recovered)
+            obj = json.loads(recovered)
+            return obj if isinstance(obj, dict) else None
         except json.JSONDecodeError:
-            log.warning("entity extraction JSON recovery failed: %r", raw[:200])
-            return ExtractionResult(entities=[], relationships=[])
+            return None
 
+
+# ---------------------------------------------------------------------------
+# Map-reduce: per-chunk two-pass extraction
+# ---------------------------------------------------------------------------
+
+
+PASS_MAX_TOKENS = 2048  # both passes emit modest JSON; 2048 leaves headroom
+# for CoT under reasoning_effort="medium" while staying
+# well under Groq's 8K TPM per-request ceiling.
+
+
+async def _call_pass1(chunk_text: str) -> str:
+    return await chat_completion(
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT_ENTITIES},
+            {"role": "user", "content": chunk_text},
+        ],
+        model=settings.groq_extraction_model,
+        temperature=0.0,
+        max_tokens=PASS_MAX_TOKENS,
+        reasoning_effort="medium",
+        response_format={"type": "json_object"},
+    )
+
+
+async def _call_pass2(chunk_text: str, entities: list[GraphEntity]) -> str:
+    entity_list = [{"name": e.name, "type": e.type} for e in entities]
+    user_msg = f"TEXT:\n{chunk_text}\n\nENTITIES:\n{json.dumps(entity_list, ensure_ascii=False)}"
+    return await chat_completion(
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT_RELATIONS},
+            {"role": "user", "content": user_msg},
+        ],
+        model=settings.groq_extraction_model,
+        temperature=0.0,
+        max_tokens=PASS_MAX_TOKENS,
+        reasoning_effort="medium",
+        response_format={"type": "json_object"},
+    )
+
+
+def _parse_entities(raw: str) -> list[GraphEntity]:
+    data = _load_json(raw)
+    if data is None:
+        log.warning("pass1 returned non-JSON: %r", raw[:200])
+        return []
+    items = data.get("entities")
+    if not isinstance(items, list):
+        return []
+    out: list[GraphEntity] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            out.append(GraphEntity.model_validate(item))
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _parse_relations(raw: str, entities: list[GraphEntity]) -> list[GraphRelationship]:
+    data = _load_json(raw)
+    if data is None:
+        log.warning("pass2 returned non-JSON: %r", raw[:200])
+        return []
+    items = data.get("relationships")
+    if not isinstance(items, list):
+        return []
+    # Case-insensitive name membership check — pass 2 model may return
+    # slightly-different casing than pass 1 emitted.
+    valid_names = {e.name.strip().lower() for e in entities if e.name}
+    out: list[GraphRelationship] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            rel = GraphRelationship.model_validate(item)
+        except Exception:  # noqa: BLE001
+            continue
+        # Pass 2 was told the source/target must come from the provided
+        # entity list — enforce it, drop fabrications.
+        if rel.source.strip().lower() not in valid_names:
+            continue
+        if rel.target.strip().lower() not in valid_names:
+            continue
+        out.append(rel)
+    return out
+
+
+async def _process_chunk(
+    chunk_text: str, semaphore: asyncio.Semaphore
+) -> tuple[ExtractionResult, bool]:
+    """Run Pass 1 + Pass 2 on one chunk. Returns (result, transient_failure).
+
+    transient_failure=True means the LLM call raised — a caller-level retry
+    might succeed. transient_failure=False with an empty result means the
+    chunk genuinely had no entities.
+
+    Semaphore is held ONLY during the LLM call (scope B): the second pass
+    releases it and reacquires so other chunks' passes can interleave.
+    """
+    try:
+        async with semaphore:
+            pass1_raw = await _call_pass1(chunk_text)
+    except GroqChatError as exc:
+        log.warning("chunk pass1 upstream failure (%s): %s", exc.status_code, exc.body)
+        return ExtractionResult(entities=[], relationships=[]), True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("chunk pass1 unexpected failure: %s", exc)
+        return ExtractionResult(entities=[], relationships=[]), True
+
+    entities = _parse_entities(pass1_raw)
+    if not entities:
+        # Genuinely empty chunk (or the parser rejected everything). Skip
+        # pass 2 — no need to burn a call asking about no entities.
+        return ExtractionResult(entities=[], relationships=[]), False
+
+    try:
+        async with semaphore:
+            pass2_raw = await _call_pass2(chunk_text, entities)
+    except GroqChatError as exc:
+        log.warning("chunk pass2 upstream failure (%s): %s", exc.status_code, exc.body)
+        # Pass 1 entities still land — better half than nothing.
+        return ExtractionResult(entities=entities, relationships=[]), False
+    except Exception as exc:  # noqa: BLE001
+        log.warning("chunk pass2 unexpected failure: %s", exc)
+        return ExtractionResult(entities=entities, relationships=[]), False
+
+    relations = _parse_relations(pass2_raw, entities)
+    return ExtractionResult(entities=entities, relationships=relations), False
+
+
+def _merge_results(results: list[ExtractionResult]) -> ExtractionResult:
+    """Union entities and relations across chunks.
+
+    Downstream alignment (`app.graph.alignment.align_batch`) does the real
+    dedup work (normalize_name + fuzzy alias + relation predicate mapping),
+    so this merge is intentionally cheap: concatenate, drop empties. The
+    alignment pass handles cross-chunk canonicalization.
+    """
+    entities: list[GraphEntity] = []
+    relationships: list[GraphRelationship] = []
+    for r in results:
+        if r is None:
+            continue
+        entities.extend(r.entities)
+        relationships.extend(r.relationships)
+    return ExtractionResult(entities=entities, relationships=relationships)
+
+
+def _default_concurrency() -> int:
+    """Match Groq key pool size so each in-flight call naturally lands on
+    its own key (no TPM contention within a key's budget). Falls back to
+    3 when the pool is a single key — modest concurrency without failure
+    storms."""
+    pool_size = len(settings.groq_key_pool)
+    return max(1, pool_size) if pool_size > 1 else 3
+
+
+async def extract_entities_from_chunks(
+    chunks: list[str],
+    *,
+    concurrency: int | None = None,
+) -> ExtractionResult:
+    """Map-reduce entity extraction over a list of chunk texts.
+
+    Concurrency defaults to the Groq key pool size so each concurrent LLM
+    call naturally lands on a different key. Failures are per-chunk isolated:
+    one chunk 429ing doesn't cancel the others. Returns the concatenated
+    ExtractionResult across all successful chunks — downstream `align_batch`
+    handles cross-chunk canonicalization.
+    """
+    non_empty = [c for c in chunks if c and c.strip()]
+    if not non_empty:
+        return ExtractionResult(entities=[], relationships=[])
+
+    n = concurrency if concurrency is not None else _default_concurrency()
+    semaphore = asyncio.Semaphore(max(1, n))
+
+    tasks = [_process_chunk(c, semaphore) for c in non_empty]
+    per_chunk = await asyncio.gather(*tasks)
+
+    ok_count = sum(1 for _, transient in per_chunk if not transient)
+    results = [r for r, _ in per_chunk]
+    log.info(
+        "extract: chunks=%d/%d ok, ents=%d rels=%d",
+        ok_count,
+        len(non_empty),
+        sum(len(r.entities) for r in results),
+        sum(len(r.relationships) for r in results),
+    )
+    return _merge_results(results)
+
+
+# ---------------------------------------------------------------------------
+# Legacy single-shot path (behind feature flag)
+# ---------------------------------------------------------------------------
+
+
+async def _call_llm(text: str) -> str:
+    return await chat_completion(
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        model=settings.groq_extraction_model,
+        temperature=0.0,
+        # Same #42a/#42b tuning as the pre-map-reduce single-shot behavior:
+        # reasoning_effort="medium" + max_tokens=5120 fits under Groq's 8K
+        # TPM per-request ceiling on free tier.
+        max_tokens=5120,
+        reasoning_effort="medium",
+        response_format={"type": "json_object"},
+    )
+
+
+def _parse_response(raw: str) -> ExtractionResult:
+    data = _load_json(raw)
+    if data is None:
+        log.warning("entity extraction returned non-JSON: %r", raw[:200])
+        return ExtractionResult(entities=[], relationships=[])
     try:
         result = ExtractionResult.model_validate(data)
     except Exception as exc:  # noqa: BLE001
         log.warning("extraction validation failed (%s); data=%r", exc, data)
         return ExtractionResult(entities=[], relationships=[])
-
     return result.normalize()
 
 
-async def extract_entities(text: str) -> ExtractionResult:
-    # Raises GroqChatError on unrecoverable upstream issues. Returns an empty
-    # result when the model returns garbage we can't parse.
-    if not text or not text.strip():
-        return ExtractionResult(entities=[], relationships=[])
-
+async def _extract_entities_single_shot(text: str) -> ExtractionResult:
     truncated = text[:MAX_INPUT_CHARS]
     json_retry_used = False
 
@@ -256,7 +553,6 @@ async def extract_entities(text: str) -> ExtractionResult:
                     )
                     await asyncio.sleep(sleep_for)
                     continue
-                # Daily cap (or we've exhausted retries) — surface up.
                 raise
             if _is_json_validate_failure(exc) and not json_retry_used:
                 json_retry_used = True
@@ -264,17 +560,63 @@ async def extract_entities(text: str) -> ExtractionResult:
                 continue
             raise
 
-    # Loop exit without return means we exhausted retries on 429s.
     raise GroqChatError(429, {"detail": f"extraction exhausted {MAX_RETRIES} retries"})
 
 
-async def safe_extract_entities(text: str) -> ExtractionOutcome:
-    """Wraps `extract_entities` and never raises. Returns an outcome that
-    also tells the caller whether the empty case was due to a transient
-    upstream issue (retry likely to succeed) or a real empty extraction."""
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+async def extract_entities(text: str) -> ExtractionResult:
+    """Legacy text-in entry point. Kept for callers that still pass raw
+    OCR text; internally routes through the map-reduce path (as a single
+    chunk) when the feature flag is on, else the pre-#43 single-shot path.
+    Prefer `extract_entities_from_chunks()` when you already have chunks."""
+    if not text or not text.strip():
+        return ExtractionResult(entities=[], relationships=[])
+    if settings.graph_extraction_map_reduce:
+        return await extract_entities_from_chunks([text])
+    return await _extract_entities_single_shot(text)
+
+
+async def safe_extract_entities(chunks: list[str]) -> ExtractionOutcome:
+    """Never raises. Returns an outcome flagging whether the empty case was
+    due to a transient upstream issue (retry likely helps) or a real empty
+    extraction. Accepts a list of chunk texts; wrap a legacy text-only call
+    as `safe_extract_entities([text])`."""
     try:
+        non_empty = [c for c in chunks if c and c.strip()]
+        if not non_empty:
+            return ExtractionOutcome(
+                result=ExtractionResult(entities=[], relationships=[]),
+                transient_failure=False,
+            )
+
+        if settings.graph_extraction_map_reduce:
+            n = _default_concurrency()
+            semaphore = asyncio.Semaphore(max(1, n))
+            per_chunk = await asyncio.gather(*(_process_chunk(c, semaphore) for c in non_empty))
+            results = [r for r, _ in per_chunk]
+            transient_flags = [t for _, t in per_chunk]
+            ok_count = sum(1 for t in transient_flags if not t)
+            merged = _merge_results(results)
+            log.info(
+                "extract: chunks=%d/%d ok, ents=%d rels=%d",
+                ok_count,
+                len(non_empty),
+                len(merged.entities),
+                len(merged.relationships),
+            )
+            # Transient failure iff EVERY chunk failed transiently. Any
+            # partial success means retrying is unlikely to help.
+            all_transient = ok_count == 0 and all(transient_flags)
+            return ExtractionOutcome(result=merged, transient_failure=all_transient)
+
+        # Legacy single-shot: concatenate chunks and run the old path.
+        text = "\n\n".join(non_empty)
         return ExtractionOutcome(
-            result=await extract_entities(text),
+            result=await _extract_entities_single_shot(text),
             transient_failure=False,
         )
     except GroqChatError as exc:

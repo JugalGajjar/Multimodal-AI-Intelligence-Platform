@@ -53,7 +53,7 @@ async def test_retries_transient_failure_until_it_succeeds():
         # asyncio.sleep is called between attempts — no-op it so the test is fast.
         patch("app.workers.tasks.asyncio.sleep", new=AsyncMock()),
     ):
-        await tasks._ingest_graph(text="something", user_id="u-1", document_id="d-1")
+        await tasks._ingest_graph(chunks=["something"], user_id="u-1", document_id="d-1")
 
     assert extract_mock.await_count == 3
     upsert.assert_awaited()
@@ -75,7 +75,7 @@ async def test_does_not_retry_when_extraction_is_genuinely_empty():
         patch("app.graph.extraction.safe_extract_entities", new=extract_mock),
         patch("app.workers.tasks.asyncio.sleep", new=AsyncMock()) as sleep,
     ):
-        await tasks._ingest_graph(text="hi", user_id="u-1", document_id="d-1")
+        await tasks._ingest_graph(chunks=["hi"], user_id="u-1", document_id="d-1")
 
     assert extract_mock.await_count == 1
     sleep.assert_not_awaited()
@@ -89,7 +89,7 @@ async def test_gives_up_after_max_attempts_of_transient_failure():
         patch("app.graph.extraction.safe_extract_entities", new=extract_mock),
         patch("app.workers.tasks.asyncio.sleep", new=AsyncMock()) as sleep,
     ):
-        await tasks._ingest_graph(text="anything", user_id="u-1", document_id="d-1")
+        await tasks._ingest_graph(chunks=["anything"], user_id="u-1", document_id="d-1")
 
     assert extract_mock.await_count == tasks.GRAPH_EXTRACT_MAX_ATTEMPTS
     # Two backoff sleeps between the three attempts.
@@ -108,7 +108,7 @@ async def test_first_attempt_success_does_not_retry():
         patch("app.graph.neo4j_client.upsert_relationship", new=AsyncMock()),
         patch("app.workers.tasks.asyncio.sleep", new=AsyncMock()) as sleep,
     ):
-        await tasks._ingest_graph(text="something", user_id="u-1", document_id="d-1")
+        await tasks._ingest_graph(chunks=["something"], user_id="u-1", document_id="d-1")
 
     assert extract_mock.await_count == 1
     sleep.assert_not_awaited()
@@ -153,7 +153,7 @@ async def test_alignment_collapses_dupes_before_upsert():
         patch("app.graph.neo4j_client.upsert_relationship", new=rel_ups),
         patch("app.workers.tasks.asyncio.sleep", new=AsyncMock()),
     ):
-        await tasks._ingest_graph(text="anything", user_id="u-1", document_id="d-1")
+        await tasks._ingest_graph(chunks=["anything"], user_id="u-1", document_id="d-1")
 
     # 3 raw entities → 2 aligned (jugal dup collapsed, GWU aliased into existing).
     assert entity_ups.await_count == 2

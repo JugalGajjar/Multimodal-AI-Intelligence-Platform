@@ -152,6 +152,13 @@ class Settings(BaseSettings):
     verification_threshold_verified: float = 0.85
     verification_threshold_partial: float = 0.5
 
+    # Map-reduce KG extraction: per-chunk two-pass (entities then relations)
+    # merged, instead of single-shot on the concatenated doc. Handles
+    # arbitrary doc size and keeps single requests small enough to fit
+    # under Groq's TPM ceiling. Feature-flagged for fast rollback — flip
+    # to False to fall back to the pre-#43 single-shot behavior.
+    graph_extraction_map_reduce: bool = True
+
     # Intent router classifies the query and branches the workflow. When
     # disabled, every turn takes the "chat" path.
     router_enabled: bool = True
