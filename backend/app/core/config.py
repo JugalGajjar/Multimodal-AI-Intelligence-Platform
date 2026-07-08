@@ -166,6 +166,14 @@ class Settings(BaseSettings):
     graph_extraction_reconcile: bool = True
     graph_extraction_reconcile_top_k: int = 40
 
+    # Semantic entity alignment (#43c) — L3 layer on top of L1/L2. Embeds
+    # each entity's name+description via bge-small and merges same-type
+    # entities whose cosine similarity clears the threshold, catching
+    # abbreviation/expansion pairs (SFT ↔ Supervised Fine-Tuning, GWU ↔
+    # George Washington University) that string-fuzzy matching can't.
+    graph_semantic_align: bool = True
+    graph_semantic_align_threshold: float = 0.85
+
     # Intent router classifies the query and branches the workflow. When
     # disabled, every turn takes the "chat" path.
     router_enabled: bool = True

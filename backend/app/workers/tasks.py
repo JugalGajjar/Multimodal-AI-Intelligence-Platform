@@ -184,13 +184,25 @@ GRAPH_EXTRACT_BACKOFF_SECONDS = (15, 30)  # sleep between attempt 1→2 and 2→
 async def _ingest_graph(*, chunks: list[str], user_id: str, document_id: str) -> None:
     # Best-effort: swallow errors so the worker stays non-blocking.
     try:
-        from app.graph.alignment import Candidate, align_batch
+        from app.embeddings import embed_texts
+        from app.graph.alignment import (
+            AlignedEntity,
+            AlignedRelationship,
+            Candidate,
+            align_batch,
+        )
         from app.graph.extraction import safe_extract_entities
         from app.graph.neo4j_client import (
             ensure_indexes,
             list_entity_candidates,
+            list_entity_semantic_candidates,
             upsert_entity,
             upsert_relationship,
+        )
+        from app.graph.semantic_alignment import (
+            SemanticCandidate,
+            find_semantic_alias,
+            format_entity_text,
         )
 
         # Groq's json_object validator flakes intermittently — the same
@@ -235,6 +247,89 @@ async def _ingest_graph(*, chunks: list[str], user_id: str, document_id: str) ->
             result.relationships,
             existing,
         )
+        pre_l3_ent_count = len(aligned_entities)
+        pre_l3_rel_count = len(aligned_rels)
+
+        # Semantic alignment (#43c): L3 layer on top of L1/L2. Embed each
+        # aligned entity's `name: description`, compare cosine similarity
+        # against existing same-type entities' stored embeddings. If a
+        # match clears the threshold, rewrite the entity's name_lower to
+        # the existing canonical form and cascade the change through the
+        # relationships. Catches abbreviation/expansion pairs (SFT ↔
+        # Supervised Fine-Tuning) that L1/L2 string-fuzzy can't.
+        entity_embeddings: dict[str, list[float]] = {}
+        if settings.graph_semantic_align and aligned_entities:
+            existing_semantic = await list_entity_semantic_candidates(user_id)
+            running_candidates = [
+                SemanticCandidate(
+                    name_lower=nl,
+                    type=t,
+                    embedding=tuple(emb),
+                )
+                for nl, t, emb in existing_semantic
+            ]
+            texts = [format_entity_text(e.name, e.description) for e in aligned_entities]
+            embeddings = await asyncio.to_thread(embed_texts, texts)
+            alias_map: dict[str, str] = {}  # old name_lower → canonical
+            for e, emb in zip(aligned_entities, embeddings, strict=True):
+                match = find_semantic_alias(
+                    emb,
+                    e.type,
+                    running_candidates,
+                    settings.graph_semantic_align_threshold,
+                )
+                if match and match != e.name_lower:
+                    alias_map[e.name_lower] = match
+                else:
+                    # Not aliased — this entity becomes a candidate that
+                    # later same-batch entities (or future docs) can align to.
+                    running_candidates.append(
+                        SemanticCandidate(
+                            name_lower=e.name_lower,
+                            type=e.type,
+                            embedding=tuple(emb),
+                        )
+                    )
+                    entity_embeddings[e.name_lower] = emb
+
+            if alias_map:
+                seen: set[str] = set()
+                collapsed: list[AlignedEntity] = []
+                for e in aligned_entities:
+                    canonical = alias_map.get(e.name_lower, e.name_lower)
+                    if canonical in seen:
+                        continue
+                    seen.add(canonical)
+                    if canonical == e.name_lower:
+                        collapsed.append(e)
+                    else:
+                        # Aliased into a canonical form — keep the aliased
+                        # display name; ON CREATE on the existing node is
+                        # a no-op so display stays as first-write.
+                        collapsed.append(
+                            AlignedEntity(
+                                name=e.name,
+                                name_lower=canonical,
+                                type=e.type,
+                                description=e.description,
+                            )
+                        )
+                aligned_entities = collapsed
+
+                rewritten_rels: list[AlignedRelationship] = []
+                for r in aligned_rels:
+                    src = alias_map.get(r.source_lower, r.source_lower)
+                    tgt = alias_map.get(r.target_lower, r.target_lower)
+                    if src == tgt:
+                        continue  # self-loop after L3
+                    rewritten_rels.append(
+                        AlignedRelationship(
+                            source_lower=src,
+                            target_lower=tgt,
+                            relation=r.relation,
+                        )
+                    )
+                aligned_rels = rewritten_rels
 
         for e in aligned_entities:
             await upsert_entity(
@@ -244,6 +339,7 @@ async def _ingest_graph(*, chunks: list[str], user_id: str, document_id: str) ->
                 name_lower=e.name_lower,
                 entity_type=e.type,
                 description=e.description,
+                embedding=entity_embeddings.get(e.name_lower),
             )
         for r in aligned_rels:
             await upsert_relationship(
@@ -254,11 +350,14 @@ async def _ingest_graph(*, chunks: list[str], user_id: str, document_id: str) ->
                 relation=r.relation,
             )
         log.info(
-            "graph: doc=%s chunks=%d entities=%d rels=%d (aligned from %d ents, %d rels)",
+            "graph: doc=%s chunks=%d entities=%d rels=%d "
+            "(pre-l3 %d ents, %d rels; raw %d ents, %d rels)",
             document_id,
             len(chunks),
             len(aligned_entities),
             len(aligned_rels),
+            pre_l3_ent_count,
+            pre_l3_rel_count,
             len(result.entities),
             len(result.relationships),
         )

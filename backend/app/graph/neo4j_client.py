@@ -62,7 +62,8 @@ ON CREATE SET
     e.type = $type,
     e.description = $description,
     e.created_at = datetime(),
-    e.document_ids = [$doc_id]
+    e.document_ids = [$doc_id],
+    e.embedding = $embedding
 SET
     e.last_seen_at = datetime(),
     e.name = coalesce(e.name, $name),
@@ -71,7 +72,8 @@ SET
     e.document_ids = CASE
         WHEN $doc_id IN coalesce(e.document_ids, []) THEN e.document_ids
         ELSE coalesce(e.document_ids, []) + $doc_id
-    END
+    END,
+    e.embedding = coalesce(e.embedding, $embedding)
 RETURN e
 """
 
@@ -96,7 +98,15 @@ async def upsert_entity(
     name_lower: str,
     entity_type: str,
     description: str,
+    embedding: list[float] | None = None,
 ) -> None:
+    """Upsert a user's :Entity node keyed on (user_id, name_lower).
+
+    The `embedding` is only written on CREATE (see `coalesce(e.embedding, ...)`
+    in the Cypher), so an L3-aliased new form doesn't overwrite the existing
+    canonical entity's vector. Callers that skip semantic alignment can
+    leave `embedding=None`.
+    """
     driver = await get_driver()
     async with driver.session() as session:
         await session.run(
@@ -107,6 +117,7 @@ async def upsert_entity(
             name_lower=name_lower,
             type=entity_type,
             description=description,
+            embedding=embedding,
         )
 
 
@@ -128,6 +139,29 @@ async def upsert_relationship(
             target_lower=target_lower,
             relation=relation,
         )
+
+
+async def list_entity_semantic_candidates(
+    user_id: str,
+) -> list[tuple[str, str, list[float]]]:
+    """Return (name_lower, type, embedding) for entities the user owns that
+    already have a stored embedding. Used by L3 semantic alignment (#43c).
+
+    Entities pre-#43c or entities skipped by the semantic-align flag lack an
+    `embedding` property; those are excluded here. The migration script
+    (`scripts/migrate_kg_embeddings.py`) backfills them.
+    """
+    driver = await get_driver()
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (e:Entity {user_id: $user_id}) "
+            "WHERE e.embedding IS NOT NULL AND e.name_lower IS NOT NULL "
+            "RETURN e.name_lower AS name_lower, "
+            "coalesce(e.type, 'Concept') AS type, "
+            "e.embedding AS embedding",
+            user_id=user_id,
+        )
+        return [(row["name_lower"], row["type"], list(row["embedding"])) async for row in result]
 
 
 async def list_entity_candidates(user_id: str) -> list[tuple[str, str]]:
