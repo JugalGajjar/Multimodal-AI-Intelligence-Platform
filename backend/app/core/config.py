@@ -167,12 +167,19 @@ class Settings(BaseSettings):
     graph_extraction_reconcile_top_k: int = 40
 
     # Semantic entity alignment (#43c) — L3 layer on top of L1/L2. Embeds
-    # each entity's name+description via bge-small and merges same-type
-    # entities whose cosine similarity clears the threshold, catching
-    # abbreviation/expansion pairs (SFT ↔ Supervised Fine-Tuning, GWU ↔
-    # George Washington University) that string-fuzzy matching can't.
+    # each entity's name+description via bge-small and merges entities whose
+    # cosine similarity clears the threshold, catching abbreviation/expansion
+    # pairs (SFT ↔ Supervised Fine-Tuning, GWU ↔ George Washington University)
+    # that string-fuzzy matching can't.
+    #
+    # Two-tier thresholds (#43d): same-type pairs merge at the looser
+    # threshold. Cross-type pairs (e.g. SFT typed Technology, Supervised
+    # Fine-Tuning typed Concept) still merge — the extractor is inconsistent
+    # about type — but at a stricter threshold that keeps genuinely-different
+    # same-string collisions (Java the Location vs Java the Technology) apart.
     graph_semantic_align: bool = True
-    graph_semantic_align_threshold: float = 0.85
+    graph_semantic_threshold_same: float = 0.85
+    graph_semantic_threshold_cross: float = 0.92
 
     # Intent router classifies the query and branches the workflow. When
     # disabled, every turn takes the "chat" path.

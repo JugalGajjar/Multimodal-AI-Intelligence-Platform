@@ -69,23 +69,32 @@ def find_semantic_alias(
     embedding: list[float] | tuple[float, ...],
     entity_type: str,
     candidates: Iterable[SemanticCandidate],
-    threshold: float,
+    same_type_threshold: float,
+    cross_type_threshold: float,
 ) -> str | None:
-    """Return the name_lower of the best same-type candidate whose cosine
-    similarity to *embedding* clears *threshold*, else None.
+    """Return the name_lower of the best candidate whose cosine similarity
+    to *embedding* clears the appropriate threshold, else None.
 
-    Type-scoping prevents cross-type false positives (a Person named "Java"
-    won't collapse into a Technology named "Java"). Exact-similarity ties
-    are broken by iteration order — first-seen wins, matching Neo4j's
-    first-write-wins display-name convention.
+    Two-tier (#43d): same-type matches use `same_type_threshold` (looser);
+    cross-type matches use `cross_type_threshold` (stricter). Cross-type is
+    allowed because the extractor is inconsistent about typing (SFT gets
+    Technology, Supervised Fine-Tuning gets Concept — same real concept),
+    but the higher bar prevents genuine cross-type collisions like Java the
+    Location vs Java the Technology at cosine ~0.6.
+
+    Same-type wins ties: if a same-type candidate and a cross-type candidate
+    both clear their respective thresholds, the same-type one is returned
+    (it's the safer merge). Within a type-class, best score wins.
     """
     if not embedding:
         return None
-    best_score = 0.0
-    best_match: str | None = None
+
+    best_same_score = 0.0
+    best_same_match: str | None = None
+    best_cross_score = 0.0
+    best_cross_match: str | None = None
+
     for cand in candidates:
-        if cand.type != entity_type:
-            continue
         if not cand.embedding:
             continue
         try:
@@ -94,9 +103,17 @@ def find_semantic_alias(
             # Dimension mismatch (e.g. an old row with a partial vector) —
             # skip rather than crash the whole batch.
             continue
-        if score > best_score:
-            best_score = score
-            best_match = cand.name_lower
-    if best_score >= threshold:
-        return best_match
+        if cand.type == entity_type:
+            if score > best_same_score:
+                best_same_score = score
+                best_same_match = cand.name_lower
+        else:
+            if score > best_cross_score:
+                best_cross_score = score
+                best_cross_match = cand.name_lower
+
+    if best_same_score >= same_type_threshold:
+        return best_same_match
+    if best_cross_score >= cross_type_threshold:
+        return best_cross_match
     return None

@@ -852,3 +852,15 @@ class TestReconciliationPromptContract:
     def test_reconcile_prompt_is_domain_neutral(self):
         low = extraction.SYSTEM_PROMPT_RECONCILE.lower()
         assert "medical" in low or "legal" in low or "any domain" in low
+
+    def test_reconcile_prompt_flags_co_mention_as_strong_signal(self):
+        """#43d: same-chunk co-mention is a strong signal — the prompt tells
+        the model to bias TOWARD emitting a relation for co-mentioned pairs
+        even without an explicit verb (byline, author list, apposition).
+        Fixes the Person↔Person co-authorship gap where Jugal ↔ Kamalasankari
+        stayed unlinked because reconciliation was too conservative."""
+        low = extraction.SYSTEM_PROMPT_RECONCILE.lower()
+        # Must name the specific co-mention patterns that generalize across
+        # domains — bylines, author lists, apposition, entity lists.
+        assert "co-appear" in low or "co-mention" in low or "same snippet" in low
+        assert "byline" in low or "author list" in low or "apposition" in low

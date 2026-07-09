@@ -276,7 +276,8 @@ async def _ingest_graph(*, chunks: list[str], user_id: str, document_id: str) ->
                     emb,
                     e.type,
                     running_candidates,
-                    settings.graph_semantic_align_threshold,
+                    settings.graph_semantic_threshold_same,
+                    settings.graph_semantic_threshold_cross,
                 )
                 if match and match != e.name_lower:
                     alias_map[e.name_lower] = match

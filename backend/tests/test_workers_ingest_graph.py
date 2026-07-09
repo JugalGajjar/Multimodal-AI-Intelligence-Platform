@@ -222,7 +222,8 @@ async def test_semantic_alignment_aliases_to_existing_high_similarity(monkeypatc
     embeddings clear the threshold."""
     from app.core.config import settings
 
-    monkeypatch.setattr(settings, "graph_semantic_align_threshold", 0.5)
+    monkeypatch.setattr(settings, "graph_semantic_threshold_same", 0.5)
+    monkeypatch.setattr(settings, "graph_semantic_threshold_cross", 0.5)
 
     outcome = ExtractionOutcome(
         result=ExtractionResult(
@@ -289,4 +290,7 @@ def test_semantic_alignment_flag_default_is_on():
     from app.core.config import settings
 
     assert settings.graph_semantic_align is True
-    assert 0.0 < settings.graph_semantic_align_threshold <= 1.0
+    assert 0.0 < settings.graph_semantic_threshold_same <= 1.0
+    assert 0.0 < settings.graph_semantic_threshold_cross <= 1.0
+    # Cross-type threshold must be stricter than same-type (#43d).
+    assert settings.graph_semantic_threshold_cross >= settings.graph_semantic_threshold_same
