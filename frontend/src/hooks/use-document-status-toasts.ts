@@ -18,12 +18,8 @@ function pollIntervalMs(items: DocumentItem[] | undefined): number | false {
   if (items.some((d) => d.status === "uploaded" || d.status === "processing")) {
     return 1500;
   }
-  const now = Date.now();
   const waitingForSummary = items.some(
-    (d) =>
-      d.status === "processed" &&
-      !d.summary &&
-      now - new Date(d.updated_at).getTime() < 60_000,
+    (d) => d.status === "processed" && !d.summary,
   );
   return waitingForSummary ? 2500 : false;
 }

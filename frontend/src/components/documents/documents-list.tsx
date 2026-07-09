@@ -55,20 +55,18 @@ const STATUS_VARIANT: Record<
 
 /** Decide how aggressively to poll /documents based on item state.
  *  - "uploaded" / "processing": worker is actively running → poll fast.
- *  - "processed" without a summary, recently updated: summary writes happen
- *    AFTER status flips to processed, so keep polling briefly to catch them.
+ *  - "processed" without a summary: the summary write happens AFTER status
+ *    flips to processed and can lag by minutes (long PDFs, video, Groq TPM
+ *    backoff). Keep polling until the summary lands — React Query pauses
+ *    on hidden tabs, so an idle open row doesn't burn requests.
  *  - Otherwise: stop polling. */
 function pollIntervalMs(items: DocumentItem[] | undefined): number | false {
   if (!items) return false;
   if (items.some((d) => d.status === "uploaded" || d.status === "processing")) {
     return 1500;
   }
-  const now = Date.now();
   const waitingForSummary = items.some(
-    (d) =>
-      d.status === "processed" &&
-      !d.summary &&
-      now - new Date(d.updated_at).getTime() < 60_000,
+    (d) => d.status === "processed" && !d.summary,
   );
   return waitingForSummary ? 2500 : false;
 }
